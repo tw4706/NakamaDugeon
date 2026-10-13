@@ -33,6 +33,18 @@ namespace
 	constexpr int kMessageNum = 4;
 	constexpr float kMessageWidth = 880.0f;
 	constexpr int kBaseCrit = 6;
+	constexpr float kDoubleSecondRate = 0.6f;	//とくぎ「2かい こうげき」の 2回目の ダメージ
+	constexpr int kStairSenseRadius = 2;		//かいだんの けはいで わかる はんい
+	constexpr float kCalmHealRate = 0.9f;		//たたかって いないとき なかまの 回復役が 回復する HPの わりあい(いか)
+
+	//なかまの のびかた(1レベルあたり。ゆうしゃは HP+4〜8・こうげき+1〜2・ぼうぎょ+0.5〜1.5)
+	constexpr float kAllyHpGrow = 5.0f;
+	constexpr float kAllyAtkGrow = 1.2f;
+	constexpr float kAllyDefGrow = 1.0f;
+	constexpr float kAllyTierMin = 0.8f;	//あさい階の まもの
+	constexpr float kAllyTierMax = 1.5f;	//B100 ちかくの まもの
+	constexpr int kAllyDefaultDepth = 20;	//むげんに でない まもの(まおう)は B20 あつかい
+	constexpr int kBossAllyHpDiv = 3;		//ぬしが なかまに なったときの HP(1/3)
 
 	//主人公の初期値
 	constexpr int kHeroHp = 32;
@@ -47,7 +59,7 @@ namespace
 	constexpr int kMaterialRate = 30;
 	constexpr int kCharmRateNormal = 3;
 	constexpr int kCharmRateInfinite = 5;
-	constexpr int kTicketRate = 2;	//しゅぎょうの きっぷ(むげんの ふつうの まもの)
+	constexpr int kTicketPermil = 5;	//しゅぎょうの きっぷ(むげんの ふつうの まもの・千分率 = 0.5%)
 
 	//色違いの出現率(千分率)
 	constexpr int kShinyPermil = 10;	//1%
@@ -108,7 +120,7 @@ namespace
 		Game::Rgb wallTop;
 	};
 
-	const Theme& ThemeOf(int floor, int stage)
+	const Theme& RawThemeOf(int floor, int stage)
 	{
 		//キラプルンの すみかは きんいろに かがやく どうくつ
 		static const Theme kTrainingTheme = { { 150, 125, 70 }, { 140, 116, 64 }, { 85, 65, 35 }, { 200, 165, 80 } };
@@ -133,6 +145,75 @@ namespace
 		};
 		if (isInfinite) return kInfiniteThemes[std::clamp((floor - 1) / 20, 0, 4)];
 		return kThemes[std::min(2, (floor - 1) / 4)];
+	}
+
+	//------------------------------//
+	// 見やすさの そろえ
+	//------------------------------//
+
+	//床の あかるさ(相対輝度)は この はんいに おさめる。暗すぎる エリア・まぶしすぎる エリアを なくす
+	constexpr float kFloorLumMin = 0.13f;
+	constexpr float kFloorLumMax = 0.22f;
+	constexpr float kWallContrast = 2.8f;		//床と 壁の コントラスト比
+	constexpr float kWallTopContrast = 1.5f;	//壁の 上面は 床より すこし 暗く
+	constexpr int kFogAlpha = 110;				//視界の そとを 暗くする こさ
+
+	float Linear(int c)
+	{
+		const float v = c / 255.0f;
+		return v <= 0.03928f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+	}
+
+	float Luminance(const Game::Rgb& c)
+	{
+		return 0.2126f * Linear(c.r) + 0.7152f * Linear(c.g) + 0.0722f * Linear(c.b);
+	}
+
+	Game::Rgb ScaleClamp(const Game::Rgb& c, float k)
+	{
+		auto ch = [k](int v) { return std::clamp(static_cast<int>(v * k + 0.5f), 0, 255); };
+		return { ch(c.r), ch(c.g), ch(c.b) };
+	}
+
+	/// <summary>
+	/// 色味は そのままで あかるさが target に なる 倍率
+	/// </summary>
+	float FitRate(const Game::Rgb& c, float target)
+	{
+		float lo = 0.0f;
+		float hi = 6.0f;
+		for (int i = 0; i < 30; i++)
+		{
+			const float k = (lo + hi) * 0.5f;
+			if (Luminance(ScaleClamp(c, k)) < target) lo = k;
+			else hi = k;
+		}
+		return lo;
+	}
+
+	/// <summary>
+	/// エリアの 色を 見やすく そろえる(床の あかるさ・床と 壁の さ)
+	/// </summary>
+	Theme ThemeOf(int floor, int stage)
+	{
+		const Theme& raw = RawThemeOf(floor, stage);
+		Theme t = raw;
+		const float lum = Luminance(raw.floorA);
+		const float target = std::clamp(lum, kFloorLumMin, kFloorLumMax);
+		if (target != lum)
+		{
+			const float k = FitRate(raw.floorA, target);
+			t.floorA = ScaleClamp(raw.floorA, k);
+			t.floorB = ScaleClamp(raw.floorB, k);
+		}
+
+		//壁は 床より かならず 暗く(コントラスト比で きめる)
+		const float floorLum = Luminance(t.floorA);
+		const float wallLum = (floorLum + 0.05f) / kWallContrast - 0.05f;
+		const float topLum = (floorLum + 0.05f) / kWallTopContrast - 0.05f;
+		t.wall = ScaleClamp(raw.wall, FitRate(raw.wall, wallLum));
+		t.wallTop = ScaleClamp(raw.wallTop, FitRate(raw.wallTop, topLum));
+		return t;
 	}
 }
 
@@ -260,7 +341,7 @@ Unit DungeonScene::MakeAllyById(int monsterId, bool isShiny)
 	const MonsterData m = a.Data();
 	a.name = m.name;
 	a.faction = Faction::Ally;
-	a.maxHp = m.hp;
+	a.maxHp = AllyBaseHp(m);
 	a.atk = m.atk;
 	a.def = m.def;
 	a.skill = m.skill;
@@ -535,6 +616,16 @@ void DungeonScene::StartFloor(bool isFirst)
 	}
 
 	map_.UpdateVision(units_[0].cell, kVisionRadius + bonus_.Get(SkillKind::Vision));
+
+	//かいごとに もどる そうびスキル
+	guardLeft_ = bonus_.Get(SkillKind::Guard);
+	isAlertUsed_ = false;
+	if (bonus_.Get(SkillKind::StairSense) > 0)
+	{
+		map_.Reveal(map_.StairsCell(), kStairSenseRadius);
+		AddMessage(L"かいだんの けはいを かんじる…", GetColor(200, 220, 255));
+	}
+
 	camera_ = units_[0].drawPos;
 	projectiles_.clear();
 	commandTarget_ = -1;
@@ -613,7 +704,8 @@ void DungeonScene::Update()
 		//一定の速さでマスへ向かう
 		const Vec2 diff = CellToPos(u.cell) - u.drawPos;
 		const float dist = diff.Length();
-		const float step = kTile / kStepTime * SaveManager::GetInstance().MoveRate() * dt;
+		const float swift = 1.0f + bonus_.Get(SkillKind::Swift) / 100.0f;
+		const float step = kTile / kStepTime * SaveManager::GetInstance().MoveRate() * swift * dt;
 		if (dist <= step || dist > kTile * 3.0f) u.drawPos = CellToPos(u.cell);
 		else u.drawPos += diff * (step / dist);
 		u.hitFlash = std::max(0.0f, u.hitFlash - dt * 4.0f);
@@ -907,11 +999,7 @@ void DungeonScene::EndPlayerTurn()
 	if (units_[0].isAlive) TickStatus();
 
 	//自然回復(見える敵がいなければ 毎ターン 最大HPの1%、戦闘中は4ターンごとに1)
-	bool isCalm = true;
-	for (const Unit& u : units_)
-	{
-		if (u.isAlive && u.faction == Faction::Enemy && map_.IsVisible(u.cell)) { isCalm = false; break; }
-	}
+	const bool isCalm = IsCalm();
 	const bool isTick = turn_ % kRegenInterval == 0;
 	for (size_t i = 0; i < units_.size(); i++)
 	{
@@ -1121,13 +1209,29 @@ void DungeonScene::UpdateRecruit()
 
 void DungeonScene::GrowAlly(Unit& u) const
 {
-	//もとが強いモンスターほどよく育つ
+	//ゆうしゃと おなじくらいの のびかた × モンスターの かくの けいすう(ふかい階の まものほど 0.8〜1.5)
+	//HP・こうげき・ぼうぎょの くばりかたは もとの のうりょくの かたよりで きめる
 	const MonsterData& m = MonsterTable::Get(u.monsterId);
-	const int hpUp = std::max(3, m.hp / 6);
+	const int depth = m.infMaxFloor > 0 ? m.infMaxFloor : kAllyDefaultDepth;
+	const float tier = kAllyTierMin + (kAllyTierMax - kAllyTierMin) * Clamp01(depth / static_cast<float>(Stage::kInfiniteLastFloor));
+	const float h = AllyBaseHp(m) / 4.0f;
+	const float sum = std::max(1.0f, h + m.atk + m.def);
+	auto shape = [sum](float v) { return std::clamp(3.0f * v / sum, 0.6f, 1.6f); };
+
+	//はすうは レベルで ならして ふえる(小数を ためておかなくても 平均が あう)
+	const int lv = u.level;
+	auto gain = [lv](float rate) { return static_cast<int>(rate * lv) - static_cast<int>(rate * (lv - 1)); };
+	const int hpUp = gain(kAllyHpGrow * tier * shape(h));
 	u.maxHp += hpUp;
 	u.hp += hpUp;
-	u.atk += std::max(1, m.atk / 6);
-	if (u.level % 2 == 0) u.def += std::max(1, m.def / 5);
+	u.atk += gain(kAllyAtkGrow * tier * shape(static_cast<float>(m.atk)));
+	u.def += gain(kAllyDefGrow * tier * shape(static_cast<float>(m.def)));
+}
+
+int DungeonScene::AllyBaseHp(const MonsterData& m)
+{
+	//ぬしは なかまに なると HPが おちる(そのままでは つよすぎる)
+	return m.type == MonsterType::Boss ? m.hp / kBossAllyHpDiv : m.hp;
 }
 
 void DungeonScene::ApplyAllyHpBonus(Unit& u)
@@ -1155,6 +1259,7 @@ Unit DungeonScene::MakeAllyFrom(const Unit& enemy) const
 	//敵の倍率をもどしてから、主人公と同じレベルまで育てる
 	a.maxHp = static_cast<int>(std::round(a.maxHp / kEnemyHpRate));
 	a.atk = static_cast<int>(std::round(a.atk / kEnemyAtkRate));
+	if (a.IsBoss()) a.maxHp = std::max(1, a.maxHp / kBossAllyHpDiv);
 	a.level = 1;
 	a.exp = 0;
 	while (a.level < units_[0].level)
@@ -1579,8 +1684,14 @@ void DungeonScene::MeleeAttack(int index, int target)
 	const Unit& self = units_[index];
 
 	//ボス・強敵は弱ると2回攻撃
+	//とくぎの 2かい こうげきは 2回目が よわい(弱ったときの 2回攻撃は そのまま)
 	const bool isRage = self.faction == Faction::Enemy && (self.IsBoss() || self.isElite) && self.hp < self.maxHp / 2;
-	if ((self.skill == Skill::Double || isRage) && units_[target].isAlive) Attack(index, target);
+	if ((self.skill == Skill::Double || isRage) && units_[target].isAlive)
+	{
+		isFollowupHit_ = true;
+		Attack(index, target, isRage ? 1.0f : kDoubleSecondRate);
+		isFollowupHit_ = false;
+	}
 
 	//まわりの相手もまとめて攻撃
 	if (units_[index].skill != Skill::Wide || !units_[index].isAlive) return;
@@ -1629,28 +1740,42 @@ bool DungeonScene::TrySummon(int index)
 	return true;
 }
 
+bool DungeonScene::IsCalm() const
+{
+	//見える敵が いなければ たたかって いない
+	for (const Unit& u : units_)
+	{
+		if (u.isAlive && u.faction == Faction::Enemy && map_.IsVisible(u.cell)) return false;
+	}
+	return true;
+}
+
 bool DungeonScene::TryHeal(int index)
 {
 	Unit& self = units_[index];
 	if (self.skill != Skill::Heal) return false;
 
+	//なかまの 回復役は たたかって いないとき 9わり いかでも かならず 回復する
+	const bool isCalmHeal = self.IsParty() && IsCalm();
 	int target = -1;
-	float lowest = 0.5f;
+	float lowest = isCalmHeal ? kCalmHealRate : 0.5f;
 	for (size_t i = 0; i < units_.size(); i++)
 	{
 		const Unit& u = units_[i];
 		if (!u.isAlive || u.IsParty() != self.IsParty()) continue;
 		const float rate = static_cast<float>(u.hp) / u.maxHp;
-		if (rate < lowest && Distance(self.cell, u.cell) <= 4 && map_.HasLineOfSight(self.cell, u.cell))
+		const bool isLow = isCalmHeal ? rate <= lowest : rate < lowest;
+		if (isLow && Distance(self.cell, u.cell) <= 4 && map_.HasLineOfSight(self.cell, u.cell))
 		{
 			lowest = rate;
 			target = static_cast<int>(i);
 		}
 	}
-	if (target < 0 || RandI(0, 3) == 0) return false;
+	if (target < 0 || (!isCalmHeal && RandI(0, 3) == 0)) return false;
 
 	Unit& t = units_[target];
-	const int amount = std::max(4, static_cast<int>(t.maxHp * 0.35f));
+	const float boost = self.IsParty() ? 1.0f + bonus_.Get(SkillKind::HealBoost) / 100.0f : 1.0f;
+	const int amount = std::max(4, static_cast<int>(t.maxHp * 0.35f * boost));
 	t.hp = std::min(t.maxHp, t.hp + amount);
 	t.poisonTurns = 0;
 	Effects& fx = Effects::GetInstance();
@@ -1702,8 +1827,11 @@ void DungeonScene::Attack(int attacker, int target, float rate, bool isExtra)
 	//号令の相手には仲間のダメージが上がる
 	if (a.faction == Faction::Ally && target == commandTarget_) raw *= 1.0f + 0.15f * bonus_.Get(SkillKind::Command);
 
-	//だいじな もので なかまの こうげきが あがる
-	if (a.faction == Faction::Ally && attacker != 0) raw *= 1.0f + KeyItem::AllyAtkRate(Save()) / 100.0f;
+	//だいじな もの・なかまの ちからで なかまの こうげきが あがる
+	if (a.faction == Faction::Ally && attacker != 0) raw *= 1.0f + (KeyItem::AllyAtkRate(Save()) + bonus_.Get(SkillKind::AllyAtk)) / 100.0f;
+
+	//なかまの まもり
+	if (t.faction == Faction::Ally && target != 0) raw *= std::max(0.5f, 1.0f - bonus_.Get(SkillKind::AllyDef) / 100.0f);
 
 	//ゆうしゃの こうげきが あがる スキル
 	if (attacker == 0)
@@ -1713,6 +1841,7 @@ void DungeonScene::Attack(int attacker, int target, float rate, bool isExtra)
 		if (t.poisonTurns > 0) raw *= 1.0f + bonus_.Get(SkillKind::VenomEdge) / 100.0f;
 		if (hero.hp >= hero.maxHp) raw *= 1.0f + bonus_.Get(SkillKind::Peak) / 100.0f;
 		if (hero.hp * 100 <= hero.maxHp * 30) raw *= 1.0f + bonus_.Get(SkillKind::Desperate) / 100.0f;
+		if (t.IsBoss() || t.isElite) raw *= 1.0f + bonus_.Get(SkillKind::BossSlayer) / 100.0f;
 		const int bond = bonus_.Get(SkillKind::Bond);
 		if (bond > 0)
 		{
@@ -1738,7 +1867,28 @@ void DungeonScene::Attack(int attacker, int target, float rate, bool isExtra)
 		Effects::GetInstance().Popup(t.drawPos + Vec2(0.0f, -80.0f), L"はんげん！", { 160, 220, 255 }, FontSize::Small);
 	}
 
+	//じょうぶ: 2はつめ・まとめて こうげきは へる
+	if (target == 0 && a.faction == Faction::Enemy && (isFollowupHit_ || isExtra))
+	{
+		raw *= std::max(0.2f, 1.0f - bonus_.Get(SkillKind::Sturdy) / 100.0f);
+	}
+
 	const int dmg = std::max(1, static_cast<int>(std::round(raw)));
+
+	//みがわり: たおれる こうげきを となりの なかまが うける
+	if (target == 0 && a.faction == Faction::Enemy && dmg >= t.hp && guardLeft_ > 0)
+	{
+		for (size_t i = 1; i < units_.size(); i++)
+		{
+			const Unit& g = units_[i];
+			if (!g.isAlive || g.faction != Faction::Ally || !IsAdjacent(g.cell, t.cell)) continue;
+			guardLeft_--;
+			Effects::GetInstance().Popup(g.drawPos + Vec2(0.0f, -80.0f), L"みがわり！", { 160, 220, 255 }, FontSize::Small);
+			AddMessage(g.name + L"が ゆうしゃを かばった！", GetColor(160, 220, 255));
+			Damage(attacker, static_cast<int>(i), dmg, isCritical);
+			return;
+		}
+	}
 	Damage(attacker, target, dmg, isCritical);
 	if (!units_[target].isAlive && attacker != 0) return;
 
@@ -1867,6 +2017,17 @@ void DungeonScene::Damage(int attacker, int target, int amount, bool isCritical)
 	waitTimer_ = std::max(waitTimer_, 0.18f);
 
 	if (a.skill == Skill::Drain && a.isAlive) a.hp = std::min(a.maxHp, a.hp + amount / 2);
+
+	//きけんよち: HPが へったら その かいで 1かいだけ かいふく
+	const int alert = bonus_.Get(SkillKind::Alert);
+	if (target == 0 && t.hp > 0 && alert > 0 && !isAlertUsed_ && t.hp * 100 <= t.maxHp * 30)
+	{
+		isAlertUsed_ = true;
+		const int heal = std::max(1, t.maxHp * alert / 100);
+		t.hp = std::min(t.maxHp, t.hp + heal);
+		fx.Popup(t.drawPos + Vec2(0.0f, -80.0f), L"+" + std::to_wstring(heal), { 140, 255, 160 }, FontSize::Small);
+		AddMessage(L"きけんを さっして ゆうしゃの HPが " + std::to_wstring(heal) + L" かいふくした！", GetColor(150, 255, 170));
+	}
 
 	if (t.hp <= 0) Kill(target, attacker);
 }
@@ -2054,7 +2215,7 @@ void DungeonScene::DropLoot(const Unit& dead, bool isFirstShiny)
 	//しゅぎょうの きっぷ(むげんの めいきゅう。ぬし2まい・つよい まものと 色違いは かならず・ふつうは まれに)
 	if (stage_ == Stage::kInfinite)
 	{
-		const int ticket = dead.IsBoss() ? 2 : ((dead.isElite || dead.isShiny || Chance(kTicketRate)) ? 1 : 0);
+		const int ticket = (dead.IsBoss() || dead.isElite || dead.isShiny || RandI(0, 999) < kTicketPermil) ? 1 : 0;
 		if (ticket > 0)
 		{
 			r.tickets += ticket;
@@ -2296,7 +2457,7 @@ void DungeonScene::Draw()
 
 void DungeonScene::DrawMap()
 {
-	const Theme& th = ThemeOf(ThemeFloor(), stage_);
+	const Theme th = ThemeOf(ThemeFloor(), stage_);
 	const float ox = Game::kScreenWidth * 0.5f - camera_.x;
 	const float oy = Game::kScreenHeight * 0.5f - camera_.y;
 	const int x0 = std::max(0, static_cast<int>(-ox / kTile) - 1);
@@ -2352,7 +2513,7 @@ void DungeonScene::DrawMap()
 
 			if (!map_.IsVisible(c))
 			{
-				SetDrawBlendMode(DX_BLENDMODE_ALPHA, 150);
+				SetDrawBlendMode(DX_BLENDMODE_ALPHA, kFogAlpha);
 				DrawBoxAA(sx, sy, sx + kTile, sy + kTile, GetColor(8, 6, 14), TRUE);
 				SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 			}
@@ -2524,8 +2685,12 @@ void DungeonScene::DrawMinimap()
 	for (const Unit& u : units_)
 	{
 		if (!u.isAlive) continue;
-		if (u.faction == Faction::Enemy && !map_.IsVisible(u.cell)) continue;
-		const unsigned int col = u.faction == Faction::Player ? GetColor(255, 255, 255) : (u.faction == Faction::Ally ? GetColor(100, 200, 255) : GetColor(255, 80, 80));
+		//たからの におい: めずらしい まものは 見えなくても うつる(きんいろ)
+		const bool isTreasure = u.faction == Faction::Enemy && bonus_.Get(SkillKind::TreasureSense) > 0 &&
+			(u.isShiny || u.isElite || u.monsterId == Stage::kKiraPurun);
+		if (u.faction == Faction::Enemy && !map_.IsVisible(u.cell) && !isTreasure) continue;
+		unsigned int col = u.faction == Faction::Player ? GetColor(255, 255, 255) : (u.faction == Faction::Ally ? GetColor(100, 200, 255) : GetColor(255, 80, 80));
+		if (isTreasure) col = GetColor(255, 220, 80);
 		DrawCircleAA(ox + (u.cell.x + 0.5f) * kCell, oy + (u.cell.y + 0.5f) * kCell, kCell * 0.9f, 8, col, TRUE);
 	}
 }

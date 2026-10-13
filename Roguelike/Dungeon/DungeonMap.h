@@ -60,6 +60,11 @@ public:
 	bool IsExplored(const Cell& c) const;
 
 	/// <summary>
+	/// まわりを 見たことに する(かいだんの けはい)
+	/// </summary>
+	void Reveal(const Cell& center, int radius);
+
+	/// <summary>
 	/// 2点間が見通せるか
 	/// </summary>
 	bool HasLineOfSight(const Cell& a, const Cell& b) const;

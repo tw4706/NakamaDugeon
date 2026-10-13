@@ -21,7 +21,8 @@ namespace
 	{
 		return kind == SkillKind::FloorHeal || kind == SkillKind::Guts || kind == SkillKind::AllySlot ||
 			kind == SkillKind::Poison || kind == SkillKind::Paralyze || kind == SkillKind::Burn ||
-			kind == SkillKind::Wide || kind == SkillKind::Command || kind == SkillKind::Luck || kind == SkillKind::Blast;
+			kind == SkillKind::Wide || kind == SkillKind::Command || kind == SkillKind::Luck || kind == SkillKind::Blast ||
+			kind == SkillKind::Guard || kind == SkillKind::StairSense || kind == SkillKind::TreasureSense;
 	}
 }
 

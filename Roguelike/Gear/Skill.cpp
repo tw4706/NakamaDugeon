@@ -46,6 +46,16 @@ namespace
 		{ "venom", L"どくぎり", L"%" },
 		{ "counter", L"はんげき", L"%" },
 		{ "desperate", L"はいすい", L"%" },
+		{ "allyatk", L"なかまの ちから", L"%" },
+		{ "allydef", L"なかまの まもり", L"%" },
+		{ "healboost", L"いやしの いのり", L"%" },
+		{ "bossslayer", L"ぬしごろし", L"%" },
+		{ "sturdy", L"じょうぶ", L"%" },
+		{ "guard", L"みがわり", L"+" },
+		{ "alert", L"きけんよち", L"%" },
+		{ "swift", L"はやあし", L"%" },
+		{ "stairs", L"かいだんの けはい", L"" },
+		{ "treasuresense", L"たからの におい", L"" },
 	};
 }
 
@@ -111,6 +121,16 @@ const wchar_t* SkillInfo::Summary(SkillKind kind)
 	case SkillKind::VenomEdge:	return L"どくの てきに あたえる ダメージが あがる。";
 	case SkillKind::Counter:	return L"てきの こうげきを うけたとき、すぐに やりかえす ことが ある。";
 	case SkillKind::Desperate:	return L"HPが のこり 30% いかの とき あたえる ダメージが おおきく あがる。";
+	case SkillKind::AllyAtk:	return L"なかまが あたえる ダメージが あがる。";
+	case SkillKind::AllyDef:	return L"なかまが うける ダメージが へる。";
+	case SkillKind::HealBoost:	return L"なかまの かいふくやくが かいふくする りょうが ふえる。";
+	case SkillKind::BossSlayer:	return L"ぬしと つよい まものに あたえる ダメージが あがる。";
+	case SkillKind::Sturdy:		return L"2かい こうげきの 2はつめや、まとめて こうげきで うける ダメージが へる。";
+	case SkillKind::Guard:		return L"たおれてしまう こうげきを、となりに いる なかまが かわりに うけてくれる。";
+	case SkillKind::Alert:		return L"HPが 30% いかに なったとき、その かいで 1かいだけ HPが かいふくする。";
+	case SkillKind::Swift:		return L"ダンジョンを あるく はやさが あがる。";
+	case SkillKind::StairSense:	return L"かいに おりたとき、かいだんの まわりが ちずに うつる。";
+	case SkillKind::TreasureSense:	return L"キラプルン・いろちがい・つよい まものの いばしょが ミニマップに うつる。";
 	default:					return L"";
 	}
 }
@@ -158,6 +178,16 @@ std::wstring SkillInfo::Explain(const SkillValue& s)
 	case SkillKind::VenomEdge:	return L"どくの てきへ ダメージ +" + n + L"%";
 	case SkillKind::Counter:	return n + L"% で はんげき（ふつうの こうげき）";
 	case SkillKind::Desperate:	return L"HP 30% いかで ダメージ +" + n + L"%";
+	case SkillKind::AllyAtk:	return L"なかまの ダメージ +" + n + L"%";
+	case SkillKind::AllyDef:	return L"なかまが うける ダメージ -" + n + L"%（さいだい 50%）";
+	case SkillKind::HealBoost:	return L"なかまの かいふくやくの かいふく +" + n + L"%";
+	case SkillKind::BossSlayer:	return L"ぬし・つよい まものへ ダメージ +" + n + L"%";
+	case SkillKind::Sturdy:		return L"2はつめ・まとめて こうげきの ダメージ -" + n + L"%（さいだい 80%）";
+	case SkillKind::Guard:		return L"1かいに " + n + L"かい、たおれる こうげきを となりの なかまが かばう";
+	case SkillKind::Alert:		return L"HP 30% いかで 1かいに 1かい さいだいHPの " + n + L"% かいふく";
+	case SkillKind::Swift:		return L"あるく はやさ +" + n + L"%";
+	case SkillKind::StairSense:	return L"かいに おりると かいだんの まわりが ちずに うつる";
+	case SkillKind::TreasureSense:	return L"キラプルン・いろちがい・つよい まものが ミニマップに うつる";
 	default:					return L"";
 	}
 }

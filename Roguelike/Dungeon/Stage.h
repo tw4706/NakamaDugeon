@@ -63,9 +63,9 @@ namespace Stage
 	{
 		static const TrainingRank kRanks[kTrainingRankNum] =
 		{
-			{ L"しょきゅう", 1, 40, 30, 3.0f, 2.0f, 600 },
-			{ L"ちゅうきゅう", 2, 60, 50, 5.0f, 3.0f, 1500 },
-			{ L"じょうきゅう", 3, 80, 70, 7.0f, 4.0f, 3000 },
+			{ L"しょきゅう", 1, 35, 30, 3.0f, 2.0f, 600 },
+			{ L"ちゅうきゅう", 2, 50, 50, 5.0f, 3.0f, 1500 },
+			{ L"じょうきゅう", 3, 65, 70, 7.0f, 4.0f, 3000 },
 		};
 		return kRanks[rank < 0 ? 0 : (rank >= kTrainingRankNum ? kTrainingRankNum - 1 : rank)];
 	}

@@ -160,3 +160,15 @@ bool DungeonMap::IsExplored(const Cell& c) const
 {
 	return IsInside(c) && explored_[c.y][c.x];
 }
+
+void DungeonMap::Reveal(const Cell& center, int radius)
+{
+	for (int dy = -radius; dy <= radius; dy++)
+	{
+		for (int dx = -radius; dx <= radius; dx++)
+		{
+			const Cell c = { center.x + dx, center.y + dy };
+			if (IsInside(c)) explored_[c.y][c.x] = true;
+		}
+	}
+}

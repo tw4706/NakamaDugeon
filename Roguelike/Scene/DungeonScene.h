@@ -126,6 +126,11 @@ private:
 	void ActEnemy(int index);
 	bool SkipByStatus(int index);
 	bool TryHeal(int index);
+
+	/// <summary>
+	/// 見える 敵が いない(たたかって いない)
+	/// </summary>
+	bool IsCalm() const;
 	bool TryRanged(int index, int target);
 
 	/// <summary>
@@ -165,6 +170,11 @@ private:
 	/// 仲間のレベルが1つ上がったときの成長
 	/// </summary>
 	void GrowAlly(Unit& u) const;
+
+	/// <summary>
+	/// なかまに なったときの もとの HP(ぬしは へる)
+	/// </summary>
+	static int AllyBaseHp(const MonsterData& m);
 
 	/// <summary>
 	/// だいじな もので なかまの さいだいHPを ふやす(なんど よんでも おなじ)
@@ -226,6 +236,11 @@ private:
 	Tactics tactics_ = Tactics::Attack;
 	int floor_ = 1;
 	int turn_ = 0;
+
+	//かいごとに もどる そうびスキル
+	int guardLeft_ = 0;				//みがわりの のこり
+	bool isAlertUsed_ = false;		//きけんよちを つかったか
+	bool isFollowupHit_ = false;	//2回攻撃の 2はつめ(じょうぶ)
 
 	//主人公の素の能力(装備・お守り・性格を除く)
 	int baseMaxHp_ = 0;

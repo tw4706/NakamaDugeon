@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{2B8D5E17-4C3A-4F69-9E21-7A6C0D93B5E4}</ProjectGuid>
+    <RootNamespace>Roguelike</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;NOMINMAX;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>Dxlib_h;$(ProjectDir)Main;$(ProjectDir)Common;$(ProjectDir)Scene;$(ProjectDir)System;$(ProjectDir)Dungeon;$(ProjectDir)Unit;$(ProjectDir)Gear;$(ProjectDir)Save</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>Dxlib_h</AdditionalLibraryDirectories>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /i /q "$(ProjectDir)data" "$(OutDir)data"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;NOMINMAX;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>Dxlib_h;$(ProjectDir)Main;$(ProjectDir)Common;$(ProjectDir)Scene;$(ProjectDir)System;$(ProjectDir)Dungeon;$(ProjectDir)Unit;$(ProjectDir)Gear;$(ProjectDir)Save</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>Dxlib_h</AdditionalLibraryDirectories>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /i /q "$(ProjectDir)data" "$(OutDir)data"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Common\UpdateLog.cpp" />
+    <ClCompile Include="Dungeon\DungeonMap.cpp" />
+    <ClCompile Include="Gear\Charm.cpp" />
+    <ClCompile Include="Gear\EquipData.cpp" />
+    <ClCompile Include="Gear\Skill.cpp" />
+    <ClCompile Include="Main\Application.cpp" />
+    <ClCompile Include="Main\main.cpp" />
+    <ClCompile Include="Save\SaveData.cpp" />
+    <ClCompile Include="Scene\CampScene.cpp" />
+    <ClCompile Include="Scene\DungeonScene.cpp" />
+    <ClCompile Include="Scene\KeyItemMenu.cpp" />
+    <ClCompile Include="Scene\SaveSelectScene.cpp" />
+    <ClCompile Include="Scene\Scene.cpp" />
+    <ClCompile Include="Scene\SceneManager.cpp" />
+    <ClCompile Include="Scene\SettingsMenu.cpp" />
+    <ClCompile Include="Scene\SettingsScene.cpp" />
+    <ClCompile Include="Scene\SmithScene.cpp" />
+    <ClCompile Include="Scene\TitleScene.cpp" />
+    <ClCompile Include="Scene\ZukanScene.cpp" />
+    <ClCompile Include="System\ButtonGuide.cpp" />
+    <ClCompile Include="System\DrawUtil.cpp" />
+    <ClCompile Include="System\Effects.cpp" />
+    <ClCompile Include="System\Fade.cpp" />
+    <ClCompile Include="System\Font.cpp" />
+    <ClCompile Include="System\Input.cpp" />
+    <ClCompile Include="System\Sound.cpp" />
+    <ClCompile Include="Unit\MonsterData.cpp" />
+    <ClCompile Include="Unit\UnitDraw.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Common\Game.h" />
+    <ClInclude Include="Common\GameTime.h" />
+    <ClInclude Include="Common\MathUtil.h" />
+    <ClInclude Include="Common\UpdateLog.h" />
+    <ClInclude Include="Dungeon\DungeonMap.h" />
+    <ClInclude Include="Dungeon\Stage.h" />
+    <ClInclude Include="Gear\Charm.h" />
+    <ClInclude Include="Gear\EquipData.h" />
+    <ClInclude Include="Gear\Skill.h" />
+    <ClInclude Include="Main\Application.h" />
+    <ClInclude Include="Save\SaveData.h" />
+    <ClInclude Include="Scene\CampScene.h" />
+    <ClInclude Include="Scene\DungeonScene.h" />
+    <ClInclude Include="Scene\KeyItemMenu.h" />
+    <ClInclude Include="Scene\SaveSelectScene.h" />
+    <ClInclude Include="Scene\Scene.h" />
+    <ClInclude Include="Scene\SceneManager.h" />
+    <ClInclude Include="Scene\SettingsMenu.h" />
+    <ClInclude Include="Scene\SettingsScene.h" />
+    <ClInclude Include="Scene\SmithScene.h" />
+    <ClInclude Include="Scene\TitleScene.h" />
+    <ClInclude Include="Scene\ZukanScene.h" />
+    <ClInclude Include="System\ButtonGuide.h" />
+    <ClInclude Include="System\DrawUtil.h" />
+    <ClInclude Include="System\Effects.h" />
+    <ClInclude Include="System\Fade.h" />
+    <ClInclude Include="System\Font.h" />
+    <ClInclude Include="System\Input.h" />
+    <ClInclude Include="System\Sound.h" />
+    <ClInclude Include="Unit\MonsterData.h" />
+    <ClInclude Include="Unit\Unit.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

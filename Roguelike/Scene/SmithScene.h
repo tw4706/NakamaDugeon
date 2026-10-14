@@ -34,7 +34,7 @@ private:
 	struct Row
 	{
 		int monsterId;
-		bool isShiny;
+		int var;		//しゅるい(EquipVar)
 		bool isKnown;
 	};
 

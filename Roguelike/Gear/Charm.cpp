@@ -20,11 +20,11 @@ namespace
 
 	const SubDef kSubs[] =
 	{
-		{ SkillKind::Atk, 1, 1 },
-		{ SkillKind::Def, 1, 1 },
-		{ SkillKind::Hp, 4, 3 },
+		{ SkillKind::Atk, 1, 2 },		//ver1.7.1: ★ごとの のびを +1 → +2(★5で やく 9)
+		{ SkillKind::Def, 1, 2 },
+		{ SkillKind::Hp, 4, 6 },		//+3 → +6(★5で やく 28)
 		{ SkillKind::Crit, 2, 2 },
-		{ SkillKind::Regen, 1, 0 },
+		{ SkillKind::Regen, 1, 1 },		//★で のびなかったのを なおした
 		{ SkillKind::Exp, 5, 4 },
 		{ SkillKind::Vision, 1, 0 },
 		{ SkillKind::Resist, 10, 8 },
@@ -70,6 +70,7 @@ void Charm::ApplyTo(HeroBonus& bonus) const
 	bonus.Add(m);
 	for (const auto& s : subs) bonus.Add(s);
 	if (rare.kind != SkillKind::None) bonus.Add(rare);
+	if (abyss.kind != SkillKind::None) bonus.Add(abyss);
 }
 
 std::wstring Charm::Name() const
@@ -127,17 +128,17 @@ Charm CharmMaker::Make(int power, int luck, SkillKind fixedMain)
 
 int CharmMaker::ShardValue(const Charm& c)
 {
-	static const int kTable[6] = { 0, 1, 2, 4, 8, 16 };
-	return kTable[std::clamp(c.rarity, 1, 5)] + (c.rare.kind != SkillKind::None ? 10 : 0);
+	static const int kTable[7] = { 0, 1, 2, 4, 8, 16, 32 };
+	return kTable[std::clamp(c.rarity, 1, 6)] + (c.rare.kind != SkillKind::None ? 10 : 0);
 }
 
 Game::Rgb CharmMaker::RarityColor(int rarity)
 {
-	static const Game::Rgb kTable[6] =
+	static const Game::Rgb kTable[7] =
 	{
-		{ 200, 200, 200 }, { 220, 220, 220 }, { 120, 220, 120 }, { 100, 170, 255 }, { 220, 120, 255 }, { 255, 200, 60 },
+		{ 200, 200, 200 }, { 220, 220, 220 }, { 120, 220, 120 }, { 100, 170, 255 }, { 220, 120, 255 }, { 255, 200, 60 }, { 255, 90, 170 },
 	};
-	return kTable[std::clamp(rarity, 1, 5)];
+	return kTable[std::clamp(rarity, 1, 6)];
 }
 
 const std::vector<SkillKind>& CharmMaker::MainKinds()
@@ -202,5 +203,53 @@ Charm CharmMaker::MakeWith(int power, SkillKind main, const std::vector<SkillKin
 		pool.erase(pool.begin() + pick);
 	}
 	c.subs = result;
+	return c;
+}
+
+Charm CharmMaker::MakeAbyss(int power, int luck)
+{
+	//★5 の つくりかたを もとに、メインの Lv が たかめ
+	Charm c = Make(std::max(power, 30), luck);
+	c.rarity = 6;
+	const int lvRoll = RandI(0, 99) + c.rarity * 12;
+	c.main.value = lvRoll >= 95 ? 3 : 2;
+
+	//サブは ★6 の あたいで つくりなおし、レアが ついても 3つ のこす
+	std::vector<int> pool;
+	for (int i = 0; i < static_cast<int>(std::size(kSubs)); i++)
+	{
+		bool isUsed = false;
+		for (const SkillValue& s : c.subs) if (s.kind == kSubs[i].kind) isUsed = true;
+		if (!isUsed) pool.push_back(i);
+	}
+	while (c.subs.size() < 3 && !pool.empty())
+	{
+		const int pick = RandI(0, static_cast<int>(pool.size()) - 1);
+		c.subs.push_back({ kSubs[pool[pick]].kind, 0 });
+		pool.erase(pool.begin() + pick);
+	}
+	for (SkillValue& s : c.subs)
+	{
+		for (const SubDef& d : kSubs)
+		{
+			if (d.kind != s.kind) continue;
+			const int value = d.base + d.step * (c.rarity - 1);
+			s.value = std::max(1, static_cast<int>(value * RandF(0.85f, 1.3f) + 0.5f));
+		}
+	}
+
+	//しんえんスキル(しんえんの なかで きく)
+	struct AbyssDef { SkillKind kind; int min; int max; };
+	static const AbyssDef kAbyss[] =
+	{
+		{ SkillKind::AbyssPower, 20, 30 },
+		{ SkillKind::AbyssGuard, 20, 30 },
+		{ SkillKind::DeepBlessing, 10, 18 },
+	};
+	const AbyssDef& d = kAbyss[RandI(0, static_cast<int>(std::size(kAbyss)) - 1)];
+	c.abyss = { d.kind, RandI(d.min, d.max) };
+
+	//だいじな ものなので さいしょから ロック
+	c.isLocked = true;
 	return c;
 }

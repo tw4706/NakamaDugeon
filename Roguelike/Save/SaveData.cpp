@@ -48,6 +48,27 @@ namespace
 		for (const auto& c : v) WriteCharm(f, c);
 	}
 
+	//★6 の しんえんスキル(むかしの セーブと くみかたを かえないよう べつに のこす)
+	void WriteAbyssSkills(std::ofstream& f, const std::vector<Charm>& v)
+	{
+		f << v.size();
+		for (const auto& c : v) f << ' ' << static_cast<int>(c.abyss.kind) << ' ' << c.abyss.value;
+		f << '\n';
+	}
+
+	void ReadAbyssSkills(std::ifstream& f, std::vector<Charm>& v)
+	{
+		size_t n = 0;
+		f >> n;
+		for (size_t i = 0; i < n && f; i++)
+		{
+			int kind = 0;
+			int value = 0;
+			f >> kind >> value;
+			if (i < v.size()) v[i].abyss = { static_cast<SkillKind>(kind), value };
+		}
+	}
+
 	//------------------------------//
 	// 読み込み
 	//------------------------------//
@@ -126,8 +147,12 @@ void SaveSlot::Fit(int monsterNum)
 	lowerLv.resize(n, -1);
 	shinyUpperLv.resize(n, -1);
 	shinyLowerLv.resize(n, -1);
+	abyssUpperLv.resize(n, -1);
+	abyssLowerLv.resize(n, -1);
 	run.materials.resize(n, 0);
 	run.shinyMaterials.resize(n, 0);
+	abyssMaterials.resize(n, 0);
+	run.abyssMaterials.resize(n, 0);
 	fish.resize(FishTable::All().size());
 }
 
@@ -138,26 +163,23 @@ HeroBonus SaveSlot::GearBonus(const Charm* overrideCharm) const
 	const EquipSeries* low = equipLower >= 0 ? EquipTable::Find(equipLower) : nullptr;
 	if (up)
 	{
-		const int lv = isEquipUpperShiny ? shinyUpperLv[equipUpper] : upperLv[equipUpper];
-		bonus.Add(EquipTable::PartSkill(*up, EquipPart::Upper, isEquipUpperShiny, lv));
+		const int lv = UpperLv(equipUpperVar)[equipUpper];
+		bonus.Add(EquipTable::PartSkill(*up, EquipPart::Upper, equipUpperVar, lv));
 	}
 	if (low)
 	{
-		const int lv = isEquipLowerShiny ? shinyLowerLv[equipLower] : lowerLv[equipLower];
-		bonus.Add(EquipTable::PartSkill(*low, EquipPart::Lower, isEquipLowerShiny, lv));
+		const int lv = LowerLv(equipLowerVar)[equipLower];
+		bonus.Add(EquipTable::PartSkill(*low, EquipPart::Lower, equipLowerVar, lv));
 	}
 
-	//同じシリーズ(色違いかどうかも同じ)ならシリーズスキル
-	if (up && low && equipUpper == equipLower && isEquipUpperShiny == isEquipLowerShiny)
+	//同じシリーズ(しゅるいも同じ)ならシリーズスキル
+	if (up && low && equipUpper == equipLower && equipUpperVar == equipLowerVar)
 	{
-		bonus.Add(EquipTable::SeriesSkill(*up, isEquipUpperShiny));
+		bonus.Add(EquipTable::SeriesSkill(*up, equipUpperVar));
 
-		//色違いで そろえると ついかの スキル
-		if (isEquipUpperShiny)
-		{
-			const SkillValue extra = EquipTable::ShinyExtra(equipUpper);
-			if (extra.kind != SkillKind::None) bonus.Add(extra);
-		}
+		//いろちがい・しんえんで そろえると ついかの スキル
+		const SkillValue extra = EquipTable::VariantExtra(equipUpper, equipUpperVar);
+		if (extra.kind != SkillKind::None) bonus.Add(extra);
 	}
 
 	const Charm* charm = overrideCharm;
@@ -385,10 +407,11 @@ bool SaveManager::LoadSlot(int index)
 	s.lowerLv = ReadInts(f);
 	s.shinyUpperLv = ReadInts(f);
 	s.shinyLowerLv = ReadInts(f);
+	//しゅるい(むかしの セーブは 0/1 = いろちがいか どうか)
 	int us = 0, ls = 0;
 	f >> s.equipUpper >> us >> s.equipLower >> ls;
-	s.isEquipUpperShiny = us != 0;
-	s.isEquipLowerShiny = ls != 0;
+	s.equipUpperVar = std::clamp(us, 0, EquipVar::kNum - 1);
+	s.equipLowerVar = std::clamp(ls, 0, EquipVar::kNum - 1);
 	s.charms = ReadCharms(f);
 	f >> s.equippedCharm >> s.shards;
 
@@ -459,6 +482,28 @@ bool SaveManager::LoadSlot(int index)
 		else if (tag == "TICKET")
 		{
 			f >> s.tickets >> r.rank >> r.tickets;
+		}
+		else if (tag == "ABYSS")
+		{
+			f >> s.deepestAbyss >> s.lastAbyss;
+			s.abyssMaterials = ReadInts(f);
+			r.abyssMaterials = ReadInts(f);
+		}
+		else if (tag == "ABYSSEQ")
+		{
+			s.abyssUpperLv = ReadInts(f);
+			s.abyssLowerLv = ReadInts(f);
+		}
+		else if (tag == "CHARM6")
+		{
+			ReadAbyssSkills(f, s.charms);
+			ReadAbyssSkills(f, r.foundCharms);
+		}
+		else if (tag == "TITLE")
+		{
+			int cleared = 0;
+			f >> s.titles >> cleared;
+			s.isAbyssCleared = cleared != 0;
 		}
 		else if (tag == "ORBS")
 		{
@@ -538,7 +583,7 @@ void SaveManager::Save()
 	WriteInts(f, s.lowerLv);
 	WriteInts(f, s.shinyUpperLv);
 	WriteInts(f, s.shinyLowerLv);
-	f << s.equipUpper << ' ' << (s.isEquipUpperShiny ? 1 : 0) << ' ' << s.equipLower << ' ' << (s.isEquipLowerShiny ? 1 : 0) << '\n';
+	f << s.equipUpper << ' ' << s.equipUpperVar << ' ' << s.equipLower << ' ' << s.equipLowerVar << '\n';
 	WriteCharms(f, s.charms);
 	f << s.equippedCharm << ' ' << s.shards << '\n';
 
@@ -566,6 +611,16 @@ void SaveManager::Save()
 	f << '\n';
 	f << "LASTINF " << s.lastInfinite << '\n';
 	f << "TICKET " << s.tickets << ' ' << r.rank << ' ' << r.tickets << '\n';
+	f << "ABYSS " << s.deepestAbyss << ' ' << s.lastAbyss << ' ';
+	WriteInts(f, s.abyssMaterials);
+	WriteInts(f, r.abyssMaterials);
+	f << "ABYSSEQ ";
+	WriteInts(f, s.abyssUpperLv);
+	WriteInts(f, s.abyssLowerLv);
+	f << "CHARM6 ";
+	WriteAbyssSkills(f, s.charms);
+	WriteAbyssSkills(f, r.foundCharms);
+	f << "TITLE " << s.titles << ' ' << (s.isAbyssCleared ? 1 : 0) << '\n';
 	f << "ORBS " << static_cast<int>(SkillKind::Num);
 	for (int v : s.orbs) f << ' ' << v;
 	f << '\n';
@@ -619,4 +674,84 @@ float SaveManager::MoveRate() const
 {
 	if (settings_.moveSpeed >= 2 && !IsFastMoveUnlocked()) return 1.0f;
 	return settings_.MoveRate();
+}
+
+//==============================//
+// しょうごう
+//==============================//
+
+namespace
+{
+	struct TitleDef
+	{
+		const wchar_t* name;
+		const wchar_t* howTo;
+	};
+
+	//えらい じゅん(あとに ある ほど えらい)
+	const TitleDef kTitles[] =
+	{
+		{ L"しんえんに ふみこみし もの", L"しんえんに はいる" },
+		{ L"★6の あるじ", L"★6 の おまもりを てにいれる" },
+		{ L"かげを こえし もの", L"しんえん B120F の ぬしを たおす" },
+		{ L"やみを あゆむ もの", L"しんえん B150F に たどりつく" },
+		{ L"そこしれぬ もの", L"しんえん B181F に たどりつく" },
+		{ L"しんえんの はしゃ", L"しんえん B200F の ヨミノオウを たおす" },
+	};
+	constexpr int kTitleNum = static_cast<int>(std::size(kTitles));
+
+	bool IsEarned(const SaveSlot& s, int index)
+	{
+		switch (index)
+		{
+		case 0: return s.deepestAbyss >= Stage::kAbyssFirstFloor;
+		case 1:
+			for (const Charm& c : s.charms) if (c.rarity >= 6) return true;
+			for (const Charm& c : s.run.foundCharms) if (c.rarity >= 6) return true;
+			return false;
+		case 2: return s.deepestAbyss > 120;
+		case 3: return s.deepestAbyss >= 150;
+		case 4: return s.deepestAbyss >= 181;
+		case 5: return s.isAbyssCleared;
+		default: return false;
+		}
+	}
+}
+
+int Title::Count()
+{
+	return kTitleNum;
+}
+
+const wchar_t* Title::Name(int index)
+{
+	return kTitles[std::clamp(index, 0, kTitleNum - 1)].name;
+}
+
+const wchar_t* Title::HowTo(int index)
+{
+	return kTitles[std::clamp(index, 0, kTitleNum - 1)].howTo;
+}
+
+bool Title::IsOwned(const SaveSlot& s, int index)
+{
+	return (s.titles & (1 << index)) != 0;
+}
+
+std::vector<int> Title::Update(SaveSlot& s)
+{
+	std::vector<int> got;
+	for (int i = 0; i < kTitleNum; i++)
+	{
+		if (IsOwned(s, i) || !IsEarned(s, i)) continue;
+		s.titles |= 1 << i;
+		got.push_back(i);
+	}
+	return got;
+}
+
+int Title::Best(const SaveSlot& s)
+{
+	for (int i = kTitleNum - 1; i >= 0; i--) if (IsOwned(s, i)) return i;
+	return -1;
 }

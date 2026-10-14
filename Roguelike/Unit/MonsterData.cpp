@@ -122,6 +122,12 @@ const wchar_t* MonsterTable::SkillName(Skill skill)
 	case Skill::Burn:	return L"もやす";
 	case Skill::Wide:	return L"まわりを まとめて こうげき";
 	case Skill::Summon:	return L"てしたを よぶ";
+	case Skill::Split:	return L"ぶんれつ";
+	case Skill::Protect:	return L"かばう";
+	case Skill::Charge:	return L"とっしん";
+	case Skill::Weaken:	return L"よわらせる";
+	case Skill::Explode:	return L"じばく";
+	case Skill::Steal:	return L"どろぼう";
 	default:			return L"とくぎ なし";
 	}
 }

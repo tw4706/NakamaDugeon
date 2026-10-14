@@ -7,6 +7,7 @@
 #include "UpdateLog.h"
 #include<vector>
 #include<string>
+#include<array>
 
 /// <summary>
 /// 拠点のキャンプ(歩いて各機能を開く)
@@ -51,7 +52,33 @@ private:
 		LibraryMenu,	//しょこで よむ ずかんを えらぶ
 		FireMenu,		//たきび(りょうり・せってい)
 		Cook,			//りょうりする さかなを えらぶ
+		Respec,			//せいちょうの ふりなおし(クリア後)
 	};
+
+	/// <summary>
+	/// むらの メニューの こうもく
+	/// </summary>
+	enum class PauseItem
+	{
+		Settings,
+		KeyItems,
+		Respec,		//クリア後だけ
+		Title,
+		Close,
+	};
+
+	std::vector<PauseItem> PauseItems() const;
+	static const wchar_t* PauseItemName(PauseItem item);
+
+	//せいちょうの ふりなおし
+	void OpenRespec();
+	void UpdateRespec();
+	void DrawRespec();
+	int RespecLeft() const;
+	std::array<int, 4> respecPts_ = {};	//こうげき・ぼうぎょ・HP・かいしん に ふった ポイント
+	int respecCursor_ = 0;
+	std::wstring respecMsg_;
+	float respecMsgTime_ = 0.0f;
 
 	/// <summary>
 	/// お知らせの1行
@@ -147,6 +174,7 @@ private:
 	int floorCursor_ = 0;
 	int lastFloorChoice_ = 0;			//前回の つづきの階(0は なし)
 	int rankCursor_ = 0;				//キラプルンの すみかの むずかしさ
+	int floorStage_ = 1;				//はじめる階を えらんでいる ステージ(むげん・しんえん)
 	int stageCursor_ = 0;				//えらんでいる いきさき(かくにん中も おぼえておく)
 	int areaCursor_ = 0;				//くわしく 見ている エリア
 	int libraryCursor_ = 0;				//しょこの ずかん(0:モンスター 1:つり 2:やめる)

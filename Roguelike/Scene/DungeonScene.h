@@ -100,11 +100,43 @@ private:
 	/// </summary>
 	int EnemyFloor() const;
 	bool IsTraining() const;
+	bool IsAbyss() const;
+
+	/// <summary>
+	/// きゅうけいじょ・つよい まもの・おまもりが でやすい ステージ(むげん・しんえん)
+	/// </summary>
+	bool IsDeep() const;
+
+	/// <summary>
+	/// この階で まつ ぬし(いなければ -1)
+	/// </summary>
+	int BossForFloor() const;
+
+	/// <summary>
+	/// 階の まえに つける なまえ(むげん / しんえん / すみか)
+	/// </summary>
+	std::wstring FloorPrefix() const;
+
+	/// <summary>
+	/// しんえん版に つく もう1つの とくぎ
+	/// </summary>
+	static Skill AbyssSkillFor(const MonsterData& m);
+	static void AbyssBossRate(int monsterId, float& hpRate, float& atkRate);
+	static Game::Rgb AuraColorOf(Skill s);
 
 	/// <summary>
 	/// にげる まもの(キラプルンの すみかの キラプルン)が にげたら true
 	/// </summary>
 	bool TryFlee(int index, int target);
+
+	/// <summary>
+	/// あたらしい とくぎ(ver1.7): かばう・ぶんれつ・とっしん
+	/// </summary>
+	int FindProtector(int target) const;
+	void CheckTitles();
+	void QueueSplit(int index);
+	void FlushSpawns();
+	bool TryCharge(int index, int target);
 	void SpawnEnemy(bool isOutOfSight);
 	void UpdateInput();
 	void UpdateRecruit();
@@ -165,6 +197,14 @@ private:
 	bool IsGateOpen(int targetFloor);
 	void DrawGates();
 	void AcceptRecruit();
+
+	/// <summary>
+	/// なかまが いっぱいの とき: ずかんに のせて むらへ おくる / いまの なかまと いれかえる
+	/// </summary>
+	void SendRecruitToVillage();
+	void ReplaceAlly(int index);
+	void RegisterRecruit(const Unit& u);
+	std::vector<int> AllyIndices() const;
 
 	/// <summary>
 	/// 仲間のレベルが1つ上がったときの成長
@@ -241,6 +281,8 @@ private:
 	int guardLeft_ = 0;				//みがわりの のこり
 	bool isAlertUsed_ = false;		//きけんよちを つかったか
 	bool isFollowupHit_ = false;	//2回攻撃の 2はつめ(じょうぶ)
+	std::vector<Unit> pendingSpawns_;	//ぶんれつで ふえる まもの(ターンの おわりに くわえる)
+	int lootKiller_ = 0;				//さいごに たおした ユニット(どろぼうの なかま)
 
 	//主人公の素の能力(装備・お守り・性格を除く)
 	int baseMaxHp_ = 0;
@@ -272,6 +314,8 @@ private:
 	int recruitCursor_ = 0;
 	bool isRecruitConfirm_ = false;		//ことわる前の確認中
 	int recruitConfirmCursor_ = 1;
+	bool isRecruitSwap_ = false;		//だれと いれかえるか えらんでいる
+	int swapAllyCursor_ = 0;
 
 	//レベルアップの2択
 	int pendingChoices_ = 0;

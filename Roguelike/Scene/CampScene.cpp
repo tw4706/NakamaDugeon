@@ -9,6 +9,7 @@
 #include "SmithScene.h"
 #include "SettingsScene.h"
 #include "SaveData.h"
+#include "HeroGrowth.h"
 #include "MonsterData.h"
 #include "Stage.h"
 #include "Unit.h"
@@ -19,6 +20,7 @@
 #include "Font.h"
 #include "ButtonGuide.h"
 #include "UpdateLog.h"
+#include "AuraRenderer.h"
 #include "Sprite.h"
 #include<DxLib.h>
 #include<cmath>
@@ -84,6 +86,7 @@ namespace
 		case Stage::kNormal:	return L"さいしょの ダンジョン。4かいごとに けしきが かわり、B12Fの おくで まおうが まちうけている。ここで なかまを ふやして つよく なろう。";
 		case Stage::kInfinite:	return L"クリア後に ひらく エンドコンテンツ。20かいごとに エリアと ぬしが かわる。5かいごとに たきびの きゅうけいじょ、10かいごとに つよい まもの。";
 		case Stage::kTraining:	return L"キラプルンが むれで すむ きんいろの どうくつ。しゅぎょうの きっぷを つかって はいる。そざい・おまもりは でないが、けいけんちが たくさん はいる。";
+		case Stage::kAbyss:		return L"むげんの めいきゅうの さらに おく。くるった オーラを まとう まものたちが すむ。なかまには ならないが、しんえんの そざいを おとす。";
 		default:				return L"";
 		}
 	}
@@ -110,19 +113,32 @@ namespace
 				areas.push_back({ rk.name, rk.baseFloor + 2, rk.baseFloor + Stage::kTrainingLastFloor * 2, { 210, 170, 70 }, -1, { Stage::kKiraPurun } });
 			}
 		}
+		else if (stage == Stage::kAbyss)
+		{
+			const Game::Rgb colors[5] = { { 90, 70, 170 }, { 170, 160, 140 }, { 90, 150, 140 }, { 190, 130, 200 }, { 150, 40, 80 } };
+			for (int i = 0; i * Stage::kAbyssLayerFloors + Stage::kAbyssFirstFloor <= Stage::kAbyssLastFloor; i++)
+			{
+				const int first = Stage::kAbyssFirstFloor + i * Stage::kAbyssLayerFloors;
+				areas.push_back({ Stage::AbyssArea(first), first, first + Stage::kAbyssLayerFloors - 1, colors[i % 5], -1, {} });
+			}
+		}
 
-		//その エリアの ぬしと まもの(むげんの 階で しらべる)
+		//その エリアの ぬしと まもの(むげんの 階で しらべる。しんえんは もとに なる むげんの 階)
 		const bool isNormal = stage == Stage::kNormal;
+		const bool isAbyss = stage == Stage::kAbyss;
 		const auto& all = MonsterTable::All();
 		for (AreaView& a : areas)
 		{
-			if (stage != Stage::kTraining) a.bossId = MonsterTable::BossFor(a.last, !isNormal);
+			if (isAbyss) a.bossId = Stage::AbyssBossFor(a.last);
+			else if (stage != Stage::kTraining) a.bossId = MonsterTable::BossFor(a.last, !isNormal);
+			const int first = isAbyss ? Stage::AbyssSourceFloor(a.first) : a.first;
+			const int last = isAbyss ? Stage::AbyssSourceFloor(a.last) : a.last;
 			for (const MonsterData& m : all)
 			{
-				if (m.type == MonsterType::Boss || (m.id == Stage::kKiraPurun && stage == Stage::kTraining)) continue;
+				if (m.type == MonsterType::Boss || (m.id == Stage::kKiraPurun && stage != Stage::kNormal && stage != Stage::kInfinite)) continue;
 				const int lo = isNormal ? m.minFloor : m.infMinFloor;
 				const int hi = isNormal ? m.maxFloor : m.infMaxFloor;
-				if (lo > 0 && lo <= a.last && hi >= a.first) a.monsters.push_back(m.id);
+				if (lo > 0 && lo <= last && hi >= first) a.monsters.push_back(m.id);
 			}
 		}
 		return areas;
@@ -135,8 +151,15 @@ namespace
 	{
 		if (stage == Stage::kNormal) return std::clamp((floor - 1) / 4, 0, 2);
 		if (stage == Stage::kInfinite) return std::clamp((floor - 1) / 20, 0, 4);
+		if (stage == Stage::kAbyss) return std::clamp((floor - Stage::kAbyssFirstFloor) / Stage::kAbyssLayerFloors, 0, (Stage::kAbyssLastFloor - Stage::kAbyssFirstFloor) / Stage::kAbyssLayerFloors);
 		return 0;
 	}
+
+	/// <summary>
+	/// むげん・しんえんの はじまりの階と さいごの階
+	/// </summary>
+	int FirstFloorOf(int stage) { return stage == Stage::kAbyss ? Stage::kAbyssFirstFloor : 1; }
+	int LastFloorOf(int stage) { return stage == Stage::kAbyss ? Stage::kAbyssLastFloor : Stage::kInfiniteLastFloor; }
 
 	const Cell kTrees[] =
 	{
@@ -339,26 +362,37 @@ void CampScene::Update()
 	case Mode::Pause:
 	{
 		Input& input = Input::GetInstance();
-		if (input.IsAnyTriggered(Button::Up)) { cursor_ = (cursor_ + 3) % 4; Sound::GetInstance().PlaySE(SE::Cursor); }
-		if (input.IsAnyTriggered(Button::Down)) { cursor_ = (cursor_ + 1) % 4; Sound::GetInstance().PlaySE(SE::Cursor); }
-		if (input.IsAnyTriggered(Button::Cancel) || input.IsAnyTriggered(Button::Menu) || (input.IsAnyTriggered(Button::Decide) && cursor_ == 3))
+		const std::vector<PauseItem> items = PauseItems();
+		const int num = static_cast<int>(items.size());
+		if (input.IsAnyTriggered(Button::Up)) { cursor_ = (cursor_ + num - 1) % num; Sound::GetInstance().PlaySE(SE::Cursor); }
+		if (input.IsAnyTriggered(Button::Down)) { cursor_ = (cursor_ + 1) % num; Sound::GetInstance().PlaySE(SE::Cursor); }
+		cursor_ = std::clamp(cursor_, 0, num - 1);
+		const PauseItem item = items[cursor_];
+		if (input.IsAnyTriggered(Button::Cancel) || input.IsAnyTriggered(Button::Menu) || (input.IsAnyTriggered(Button::Decide) && item == PauseItem::Close))
 		{
 			mode_ = Mode::Walk;
 			Sound::GetInstance().PlaySE(SE::Cancel);
 		}
-		else if (input.IsAnyTriggered(Button::Decide) && cursor_ == 1)
+		else if (!input.IsAnyTriggered(Button::Decide))
+		{
+		}
+		else if (item == PauseItem::KeyItems)
 		{
 			mode_ = Mode::KeyItems;
 			Sound::GetInstance().PlaySE(SE::Decide);
 		}
-		else if (input.IsAnyTriggered(Button::Decide) && cursor_ == 0)
+		else if (item == PauseItem::Respec)
+		{
+			OpenRespec();
+		}
+		else if (item == PauseItem::Settings)
 		{
 			isLeaving_ = true;
 			Sound::GetInstance().PlaySE(SE::Decide);
 			SaveManager::GetInstance().Save();
 			sceneManager_.ChangeSceneWithFade(std::make_shared<SettingsScene>(sceneManager_, SettingsScene::Return::Camp));
 		}
-		else if (input.IsAnyTriggered(Button::Decide))
+		else if (item == PauseItem::Title)
 		{
 			isLeaving_ = true;
 			Sound::GetInstance().PlaySE(SE::Decide);
@@ -371,6 +405,7 @@ void CampScene::Update()
 	case Mode::Unlock: UpdateUnlock(); break;
 	case Mode::FloorSelect: UpdateFloorSelect(); break;
 	case Mode::RankSelect: UpdateRankSelect(); break;
+	case Mode::Respec: UpdateRespec(); break;
 	case Mode::PartySelect: UpdatePartySelect(); break;
 	case Mode::LibraryMenu: UpdateLibraryMenu(); break;
 	case Mode::FireMenu: UpdateFireMenu(); break;
@@ -611,6 +646,16 @@ void CampScene::OpenStageSelect()
 	{
 		choices_.push_back({ L"？？？（むげん B20Fの ぬしを たおすと かいほう）", Stage::kTraining, true });
 	}
+
+	//しんえん(むげん B100F を とうはした えいゆうの あかしで かいほう)
+	if (s.hasRelic)
+	{
+		choices_.push_back({ std::wstring(Stage::Name(Stage::kAbyss)) + L"（B" + std::to_wstring(Stage::kAbyssFirstFloor) + L"〜B" + std::to_wstring(Stage::kAbyssLastFloor) + L"F）", Stage::kAbyss, false });
+	}
+	else if (s.isCleared)
+	{
+		choices_.push_back({ L"？？？（むげん B100Fの ぬしを たおすと かいほう）", Stage::kAbyss, true });
+	}
 	choices_.push_back({ L"やめる", -2, false });
 	cursor_ = 0;
 	stageCursor_ = 0;
@@ -718,18 +763,23 @@ void CampScene::UpdateStageSelect()
 		return;
 	}
 
-	//むげんの めいきゅうは たどりついた休憩所の次の階から はじめられる
-	if (c.stage == Stage::kInfinite)
+	//むげんの めいきゅう・しんえんは たどりついた休憩所の次の階から はじめられる
+	if (c.stage == Stage::kInfinite || c.stage == Stage::kAbyss)
 	{
 		const SaveSlot& s = SaveManager::GetInstance().Current();
-		const int deepest = s.deepestInfinite;
+		const bool isAbyss = c.stage == Stage::kAbyss;
+		const int first = FirstFloorOf(c.stage);
+		const int lastFloor = LastFloorOf(c.stage);
+		const int deepest = isAbyss ? s.deepestAbyss : s.deepestInfinite;
 		floorChoices_.clear();
-		for (int f = 1; f <= std::min(deepest, Stage::kInfiniteLastFloor); f += Stage::kRestInterval) floorChoices_.push_back(f);
+		floorStage_ = c.stage;
+		for (int f = first; f <= std::min(deepest, lastFloor); f += Stage::kRestInterval) floorChoices_.push_back(f);
+		if (floorChoices_.empty()) floorChoices_.push_back(first);
 
 		//前回の つづき(さいしょの こうもく)
 		lastFloorChoice_ = 0;
-		const int last = std::min(s.lastInfinite, Stage::kInfiniteLastFloor);
-		if (last > 1)
+		const int last = std::min(isAbyss ? s.lastAbyss : s.lastInfinite, lastFloor);
+		if (last > first)
 		{
 			lastFloorChoice_ = last;
 			floorChoices_.insert(floorChoices_.begin(), last);
@@ -741,6 +791,8 @@ void CampScene::UpdateStageSelect()
 			sound.PlaySE(SE::Decide);
 			return;
 		}
+		BeginNewRun(c.stage, floorChoices_[0]);
+		return;
 	}
 	BeginNewRun(c.stage, 1);
 }
@@ -771,7 +823,7 @@ void CampScene::UpdateFloorSelect()
 	if (input.IsAnyTriggered(Button::Cancel)) { mode_ = Mode::StageSelect; sound.PlaySE(SE::Cancel); return; }
 	if (!input.IsAnyTriggered(Button::Decide)) return;
 	mode_ = Mode::StageSelect;
-	BeginNewRun(Stage::kInfinite, floorChoices_[floorCursor_]);
+	BeginNewRun(floorStage_, floorChoices_[floorCursor_]);
 }
 
 void CampScene::UpdateRankSelect()
@@ -839,7 +891,7 @@ void CampScene::DrawFloorSelect()
 		if (isSel) DrawUtil::Cursor(410.0f, y, time_);
 		const bool isLast = i == 0 && lastFloorChoice_ > 0;
 		const std::wstring text = isLast ? L"ぜんかいの つづき（B" + std::to_wstring(f) + L"F から）" :
-			L"B" + std::to_wstring(f) + L"F から（" + Stage::InfiniteArea(f) + L"）";
+			L"B" + std::to_wstring(f) + L"F から（" + (floorStage_ == Stage::kAbyss ? Stage::AbyssArea(f) : Stage::InfiniteArea(f)) + L"）";
 		if (isLast) DrawLineAA(450.0f, y + 26.0f, 860.0f, y + 26.0f, GetColor(120, 100, 150), 1.0f);
 		Font::DrawFit(450.0f, y - 14.0f, text, isSel ? GetColor(255, 240, 150) : GetColor(210, 200, 230), FontSize::Small, GetColor(20, 15, 30), 420.0f);
 	}
@@ -866,7 +918,7 @@ void CampScene::LaunchDungeon(int stage, bool isContinue)
 {
 	isLeaving_ = true;
 	Sound::GetInstance().PlaySE(SE::Whoosh);
-	const int startFloor = (!isContinue && stage == Stage::kInfinite) ? pendingFloor_ : 1;
+	const int startFloor = (!isContinue && (stage == Stage::kInfinite || stage == Stage::kAbyss)) ? pendingFloor_ : 1;
 	const std::vector<PartyMember> party = isContinue ? std::vector<PartyMember>() : partySel_;
 	sceneManager_.ChangeSceneWithFade(std::make_shared<DungeonScene>(sceneManager_, stage, isContinue, startFloor, party, rankCursor_));
 }
@@ -1142,15 +1194,19 @@ void CampScene::Draw()
 
 	if (mode_ == Mode::Pause)
 	{
-		DrawUtil::Window(420.0f, 195.0f, 860.0f, 515.0f);
-		const wchar_t* items[4] = { L"せってい", L"だいじな もの", L"タイトルへ もどる", L"とじる" };
-		for (int i = 0; i < 4; i++)
+		const std::vector<PauseItem> items = PauseItems();
+		const float h = 60.0f + items.size() * 70.0f;
+		DrawUtil::Window(420.0f, 360.0f - h * 0.5f, 860.0f, 360.0f + h * 0.5f);
+		for (size_t i = 0; i < items.size(); i++)
 		{
-			const float y = 250.0f + i * 70.0f;
-			if (i == cursor_) DrawUtil::CursorBeside(640.0f, y, items[i], FontSize::Medium, time_);
-			Font::DrawCenter(640.0f, y, items[i], i == cursor_ ? GetColor(255, 240, 150) : GetColor(190, 180, 210), FontSize::Medium, GetColor(20, 15, 30));
+			const float y = 360.0f - h * 0.5f + 65.0f + i * 70.0f;
+			const wchar_t* text = PauseItemName(items[i]);
+			const bool isSel = static_cast<int>(i) == cursor_;
+			if (isSel) DrawUtil::CursorBeside(640.0f, y, text, FontSize::Medium, time_);
+			Font::DrawCenter(640.0f, y, text, isSel ? GetColor(255, 240, 150) : GetColor(190, 180, 210), FontSize::Medium, GetColor(20, 15, 30));
 		}
 	}
+	if (mode_ == Mode::Respec) DrawRespec();
 
 	if (mode_ == Mode::Notice) DrawNotice();
 	if (mode_ == Mode::KeyItems) keyItemMenu_.Draw();
@@ -1751,6 +1807,9 @@ void CampScene::DrawHud()
 	std::wstring info = L"きろく" + std::to_wstring(sm.CurrentIndex() + 1) + L"　ゆうしゃ Lv" + std::to_wstring(s.run.isActive ? s.run.heroLevel : s.hero.level) + L"　ずかん " + std::to_wstring(seen) + L"/" + std::to_wstring(s.zukan.size()) +
 		L"　とうたつ " + (s.deepestNormal > 0 ? L"B" + std::to_wstring(s.deepestNormal) + L"F" : std::wstring(L"ー"));
 	if (s.isCleared) info += L"　★クリア　むげん " + (s.deepestInfinite > 0 ? L"B" + std::to_wstring(s.deepestInfinite) + L"F" : std::wstring(L"ー"));
+	if (s.deepestAbyss > 0) info += L"　しんえん B" + std::to_wstring(s.deepestAbyss) + L"F";
+	const int title = Title::Best(s);
+	if (title >= 0) info += std::wstring(L"　「") + Title::Name(title) + L"」";
 	Font::DrawFit(50.0f, 672.0f, info, GetColor(240, 235, 255), FontSize::Small, GetColor(10, 10, 20), 985.0f);
 	ButtonGuide::Draw(1236.0f - ButtonGuide::Width(L"{M}：メニュー", FontSize::Small), 684.0f, L"{M}：メニュー", GetColor(170, 160, 190), FontSize::Small, GetColor(10, 10, 20));
 }
@@ -1830,6 +1889,10 @@ void CampScene::ResetAreaCursor()
 	{
 		areaCursor_ = AreaOf(stage, std::max(1, s.deepestInfinite));
 	}
+	else if (stage == Stage::kAbyss)
+	{
+		areaCursor_ = AreaOf(stage, std::max(Stage::kAbyssFirstFloor, s.deepestAbyss));
+	}
 	else if (stage == Stage::kTraining)
 	{
 		areaCursor_ = rankCursor_;
@@ -1857,6 +1920,12 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 		{
 			m.color = { 25, 22, 35 };
 			SetDrawBright(40, 36, 55);
+		}
+		//しんえんは しんえん版の すがた(オーラ)で みせる
+		if (seen && stage == Stage::kAbyss)
+		{
+			AuraRenderer::Draw(feet, { 160, 110, 230 }, time_ + id * 0.3f, [&](const Vec2& f) { UnitDraw::Monster(f, size, m, time_, 1.0f, false); });
+			return;
 		}
 		UnitDraw::Monster(feet, size, m, seen ? time_ : 0.0f, 1.0f, false);
 		SetDrawBright(255, 255, 255);
@@ -1894,6 +1963,7 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 	std::wstring sub;
 	if (stage == Stage::kNormal) sub = L"B1〜B" + std::to_wstring(Stage::kNormalLastFloor) + L"F・ぬし 1たい";
 	else if (stage == Stage::kInfinite) sub = L"B1〜B" + std::to_wstring(Stage::kInfiniteLastFloor) + L"F・ぬし 5たい";
+	else if (stage == Stage::kAbyss) sub = L"B" + std::to_wstring(Stage::kAbyssFirstFloor) + L"〜B" + std::to_wstring(Stage::kAbyssLastFloor) + L"F・ぬし " + std::to_wstring(static_cast<int>(areas.size())) + L"たい";
 	else sub = L"ぜん" + std::to_wstring(Stage::kTrainingLastFloor) + L"かい・きっぷで ちょうせん";
 	if (choice.stage == -1) sub = L"ぼうけんの つづき：B" + std::to_wstring(s.run.floor) + L"F から";
 	Font::DrawFit(right - 330.0f, top + 20.0f, sub, GetColor(255, 210, 130), FontSize::Small, edge, 310.0f);
@@ -1951,11 +2021,18 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 		drawMonster(starId, { cardX, boxTop + 156.0f }, stage == Stage::kTraining ? 34.0f : 44.0f);
 
 		const MonsterData& m = MonsterTable::Get(starId);
-		const std::wstring name = isSeen(starId) ? m.name : L"？？？";
+		const bool isAbyss = stage == Stage::kAbyss;
+		const std::wstring name = isSeen(starId) ? (isAbyss ? L"くるった " : L"") + m.name : L"？？？";
 		Font::DrawCenterFit(cardX, boxTop + 178.0f, name, GetColor(255, 255, 255), FontSize::Small, edge, cardR - cardL - 16.0f);
 		std::wstring state;
 		unsigned int stateCol = GetColor(170, 160, 190);
 		if (stage == Stage::kTraining) { state = L"けいけんち " + std::to_wstring(Stage::Rank(areaIdx).kiraExp); stateCol = GetColor(255, 220, 120); }
+		else if (isAbyss) //しんえんの ぬしは すすんだ ふかさで みる
+		{
+			const bool isBeaten = s.deepestAbyss > area.last || (area.last >= Stage::kAbyssLastFloor && s.isAbyssCleared);
+			state = isBeaten ? L"たおした！" : L"B" + std::to_wstring(area.last) + L"F で まつ";
+			if (isBeaten) stateCol = GetColor(140, 230, 150);
+		}
 		else if (isDefeated(starId)) { state = L"たおした！"; stateCol = GetColor(140, 230, 150); }
 		else if (isSeen(starId)) state = L"まだ たおしていない";
 		else state = L"B" + std::to_wstring(area.last) + L"F で まつ";
@@ -1983,6 +2060,11 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 		areaSub = L"B" + std::to_wstring(area.first) + L"〜B" + std::to_wstring(area.last) + L"F";
 		if (area.bossId >= 0) areaSub += L"・B" + std::to_wstring(area.last) + L"F で ぬしと たたかう";
 		if (stage == Stage::kInfinite) areaSub += L"・つよさ ×" + std::to_wstring(100 + area.last * 4 / 10).insert(1, L".");
+		if (stage == Stage::kAbyss)
+		{
+			const float rate = Stage::kAbyssBaseRate * (1.0f + Stage::kAbyssFloorRate * (area.last - Stage::kAbyssFirstFloor + 1));
+			areaSub += L"・つよさ ×" + std::to_wstring(static_cast<int>(rate * 100.0f + 0.5f)).insert(1, L".");
+		}
 	}
 	Font::DrawFit(infoL, boxTop + 54.0f, areaSub, GetColor(200, 195, 220), FontSize::Small, edge, infoW);
 
@@ -2029,6 +2111,14 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 		notes.push_back(L"5かいごとに たきび（ぜんかいふく・おまもりの つけかえ・むらへ かえれる）");
 		notes.push_back(L"10かいごとに つよい まもの。しゅぎょうの きっぷを おとす ことも");
 	}
+	else if (stage == Stage::kAbyss)
+	{
+		int titleNum = 0;
+		for (int t = 0; t < Title::Count(); t++) if (Title::IsOwned(s, t)) titleNum++;
+		notes.push_back(L"きろく：さいしん " + (s.deepestAbyss > 0 ? L"B" + std::to_wstring(s.deepestAbyss) + L"F" : std::wstring(L"ー")) + L"　しょうごう " + std::to_wstring(titleNum) + L" / " + std::to_wstring(Title::Count()) + (s.isAbyssCleared ? L"　★とうは" : L""));
+		notes.push_back(L"まものは みんな しんえん版。なかまに ならず、しんえんの そざいを おとす");
+		notes.push_back(L"オーラの いろ＝ついた とくぎ　あか:2かい こうげき　みどり:どく　きいろ:まひ　だいだい:もやす　むらさき:すいとる");
+	}
 	else
 	{
 		notes.push_back(L"もっている きっぷ：" + std::to_wstring(s.tickets) + L"まい（むげんの めいきゅうで てにはいる）");
@@ -2039,4 +2129,181 @@ void CampScene::DrawStageDetail(float left, float top, float right, float bottom
 	{
 		Font::DrawFit(left + 24.0f, noteTop + 10.0f + i * 28.0f, notes[i], i == 0 ? GetColor(255, 230, 160) : GetColor(215, 210, 230), FontSize::Small, edge, right - left - 48.0f);
 	}
+}
+
+//==============================//
+// メニュー
+//==============================//
+
+std::vector<CampScene::PauseItem> CampScene::PauseItems() const
+{
+	//クリア後は せいちょうの ふりなおし
+	std::vector<PauseItem> items = { PauseItem::Settings, PauseItem::KeyItems };
+	if (SaveManager::GetInstance().Current().isCleared) items.push_back(PauseItem::Respec);
+	items.push_back(PauseItem::Title);
+	items.push_back(PauseItem::Close);
+	return items;
+}
+
+const wchar_t* CampScene::PauseItemName(PauseItem item)
+{
+	switch (item)
+	{
+	case PauseItem::Settings:	return L"せってい";
+	case PauseItem::KeyItems:	return L"だいじな もの";
+	case PauseItem::Respec:		return L"せいちょうの ふりなおし";
+	case PauseItem::Title:		return L"タイトルへ もどる";
+	default:					return L"とじる";
+	}
+}
+
+//==============================//
+// せいちょうの ふりなおし(クリア後)
+//==============================//
+
+namespace
+{
+	//こうげき・ぼうぎょ・HP・かいしん の あとに「ぜんぶ もどす」「けってい」「やめる」
+	constexpr int kRespecStatRows = HeroGrowth::kNum;
+	constexpr int kRespecReset = kRespecStatRows;
+	constexpr int kRespecDecide = kRespecStatRows + 1;
+	constexpr int kRespecCancel = kRespecStatRows + 2;
+	constexpr int kRespecRows = kRespecStatRows + 3;
+	constexpr int kRespecBigStep = 10;	//LB・RB で うごく かず
+}
+
+int CampScene::RespecLeft() const
+{
+	const int used = respecPts_[0] + respecPts_[1] + respecPts_[2] + respecPts_[3];
+	return HeroGrowth::TotalPoints(SaveManager::GetInstance().Current().hero.level) - used;
+}
+
+void CampScene::OpenRespec()
+{
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+
+	//ぼうけんの とちゅうは のうりょくが ぼうけんの きろくに あるので できない
+	if (s.run.isActive)
+	{
+		Sound::GetInstance().PlaySE(SE::Buzzer);
+		respecMsg_ = L"ぼうけんの とちゅうは ふりなおせません";
+		respecMsgTime_ = 2.0f;
+		mode_ = Mode::Respec;
+		respecCursor_ = kRespecCancel;
+		respecPts_ = HeroGrowth::PointsOf(s.hero);
+		return;
+	}
+	respecPts_ = HeroGrowth::PointsOf(s.hero);
+	respecCursor_ = 0;
+	respecMsg_.clear();
+	respecMsgTime_ = 0.0f;
+	mode_ = Mode::Respec;
+	Sound::GetInstance().PlaySE(SE::Decide);
+}
+
+void CampScene::UpdateRespec()
+{
+	Input& input = Input::GetInstance();
+	Sound& sound = Sound::GetInstance();
+	SaveSlot& s = SaveManager::GetInstance().Current();
+	if (respecMsgTime_ > 0.0f) respecMsgTime_ -= Game::kFrameTime;
+
+	if (input.IsAnyTriggered(Button::Up)) { respecCursor_ = (respecCursor_ + kRespecRows - 1) % kRespecRows; sound.PlaySE(SE::Cursor); }
+	if (input.IsAnyTriggered(Button::Down)) { respecCursor_ = (respecCursor_ + 1) % kRespecRows; sound.PlaySE(SE::Cursor); }
+	if (input.IsAnyTriggered(Button::Cancel)) { mode_ = Mode::Pause; sound.PlaySE(SE::Cancel); return; }
+
+	const bool isLocked = s.run.isActive;
+
+	//ポイントを ふる(←→で 1、LB・RBで 10)
+	if (respecCursor_ < kRespecStatRows && !isLocked)
+	{
+		int step = 0;
+		if (input.IsAnyTriggered(Button::Right)) step = 1;
+		if (input.IsAnyTriggered(Button::Left)) step = -1;
+		if (input.IsAnyTriggered(Button::PageR)) step = kRespecBigStep;
+		if (input.IsAnyTriggered(Button::PageL)) step = -kRespecBigStep;
+		if (step != 0)
+		{
+			int& p = respecPts_[respecCursor_];
+			const int next = std::clamp(p + step, 0, p + std::max(0, RespecLeft()));
+			if (next != p) { p = next; sound.PlaySE(SE::Tick); }
+			else sound.PlaySE(SE::Buzzer);
+		}
+	}
+
+	if (!input.IsAnyTriggered(Button::Decide)) return;
+	if (respecCursor_ == kRespecCancel) { mode_ = Mode::Pause; sound.PlaySE(SE::Cancel); return; }
+	if (isLocked) { sound.PlaySE(SE::Buzzer); return; }
+	if (respecCursor_ == kRespecReset)
+	{
+		respecPts_ = {};
+		sound.PlaySE(SE::Cancel);
+		respecMsg_ = L"ポイントを ぜんぶ もどした";
+		respecMsgTime_ = 1.5f;
+		return;
+	}
+	if (respecCursor_ == kRespecDecide)
+	{
+		if (RespecLeft() > 0)
+		{
+			sound.PlaySE(SE::Buzzer);
+			respecMsg_ = L"のこりの ポイントを ぜんぶ ふってね（のこり " + std::to_wstring(RespecLeft()) + L"）";
+			respecMsgTime_ = 2.0f;
+			return;
+		}
+		HeroGrowth::Apply(s.hero, respecPts_);
+		SaveManager::GetInstance().Save();
+		sound.PlaySE(SE::Fanfare);
+		respecMsg_ = L"せいちょうを ふりなおした！";
+		respecMsgTime_ = 2.0f;
+		respecCursor_ = kRespecCancel;
+	}
+}
+
+void CampScene::DrawRespec()
+{
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+	const unsigned int edge = GetColor(20, 15, 30);
+	const int level = s.hero.level;
+	SetDrawBlendMode(DX_BLENDMODE_ALPHA, 140);
+	DrawBox(0, 0, Game::kScreenWidth, Game::kScreenHeight, GetColor(0, 0, 0), TRUE);
+	SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+	DrawUtil::Window(290.0f, 90.0f, 990.0f, 640.0f);
+	Font::DrawCenter(640.0f, 130.0f, L"せいちょうの ふりなおし", GetColor(255, 230, 140), FontSize::Medium, edge);
+	const std::wstring head = L"レベル " + std::to_wstring(level) + L"　ふれる ポイント " + std::to_wstring(HeroGrowth::TotalPoints(level)) + L"　のこり " + std::to_wstring(RespecLeft());
+	Font::DrawCenterFit(640.0f, 175.0f, head, RespecLeft() > 0 ? GetColor(255, 200, 120) : GetColor(170, 230, 170), FontSize::Small, edge, 640.0f);
+
+	//ふりなおした あとの のうりょく
+	HeroProgress preview = s.hero;
+	if (preview.maxHp <= 0) preview = { level, s.hero.exp, HeroGrowth::kBaseHp, HeroGrowth::kBaseAtk, HeroGrowth::kBaseDef, 0 };
+	HeroGrowth::Apply(preview, respecPts_);
+	const int values[HeroGrowth::kNum] = { preview.atk, preview.def, preview.maxHp, preview.crit };
+	const wchar_t* labels[HeroGrowth::kNum] = { L"こうげき", L"ぼうぎょ", L"さいだいHP", L"かいしん" };
+	const wchar_t* units[HeroGrowth::kNum] = { L"", L"", L"", L"%" };
+	for (int i = 0; i < HeroGrowth::kNum; i++)
+	{
+		const float y = 225.0f + i * 58.0f;
+		const bool isSel = respecCursor_ == i;
+		if (isSel) DrawUtil::Cursor(330.0f, y, time_);
+		const unsigned int col = isSel ? GetColor(255, 240, 150) : GetColor(220, 210, 235);
+		Font::DrawFit(370.0f, y - 14.0f, labels[i], col, FontSize::Small, edge, 160.0f);
+		Font::DrawFit(540.0f, y - 14.0f, std::wstring(L"◀ ") + std::to_wstring(respecPts_[i]) + L" ▶", col, FontSize::Small, edge, 140.0f);
+		Font::DrawFit(690.0f, y - 14.0f, std::wstring(L"（1ポイントで ") + HeroGrowth::kChoices[i].name + L"）", GetColor(170, 160, 190), FontSize::Small, edge, 170.0f);
+		Font::DrawFit(870.0f, y - 14.0f, std::to_wstring(values[i]) + units[i], GetColor(255, 255, 255), FontSize::Small, edge, 100.0f);
+	}
+
+	const wchar_t* actions[3] = { L"ぜんぶ もどす", L"けってい", L"やめる" };
+	for (int i = 0; i < 3; i++)
+	{
+		const float y = 225.0f + (kRespecStatRows + i) * 58.0f + 10.0f;
+		const bool isSel = respecCursor_ == kRespecStatRows + i;
+		if (isSel) DrawUtil::Cursor(330.0f, y, time_);
+		Font::DrawFit(370.0f, y - 14.0f, actions[i], isSel ? GetColor(255, 240, 150) : GetColor(220, 210, 235), FontSize::Small, edge, 400.0f);
+	}
+
+	if (respecMsgTime_ > 0.0f && !respecMsg_.empty())
+	{
+		Font::DrawCenterFit(640.0f, 575.0f, respecMsg_, GetColor(255, 220, 160), FontSize::Small, edge, 640.0f);
+	}
+	ButtonGuide::DrawCenter(640.0f, 612.0f, L"{UD}：えらぶ　{LR}：ふる（{L}{R}で 10）　{A}：けってい　{B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
 }

@@ -9,10 +9,11 @@
 /// </summary>
 struct Charm
 {
-	int rarity = 1;				//★1〜5
+	int rarity = 1;				//★1〜5(★6 は しんえん げんてい)
 	SkillValue main;			//メインスキル(Lv1〜3)
 	std::vector<SkillValue> subs;	//サブスキル(1〜3個)
 	SkillValue rare;			//レアスキル(無いことが多い)
+	SkillValue abyss;			//しんえんスキル(★6 だけ)
 	bool isLocked = false;
 
 	/// <summary>
@@ -51,6 +52,11 @@ namespace CharmMaker
 	/// </summary>
 	/// <param name="subs">かならず付けるサブ(2こまで)</param>
 	/// <param name="rare">かならず付けるレア(Noneで なし)</param>
+	/// <summary>
+	/// ★6 の おまもり(しんえん げんてい ドロップ。★5 と おなじ すうちに しんえんスキルが 1つ)
+	/// </summary>
+	Charm MakeAbyss(int power, int luck);
+
 	Charm MakeWith(int power, SkillKind main, const std::vector<SkillKind>& subs, SkillKind rare);
 
 	Game::Rgb RarityColor(int rarity);

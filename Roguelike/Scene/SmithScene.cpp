@@ -12,6 +12,7 @@
 #include "DrawUtil.h"
 #include "Font.h"
 #include "ButtonGuide.h"
+#include "AuraRenderer.h"
 #include<DxLib.h>
 #include<cmath>
 #include<algorithm>
@@ -100,7 +101,21 @@ void SmithScene::BuildRows()
 		for (const EquipSeries& e : EquipTable::All())
 		{
 			const bool isKnown = e.monsterId < static_cast<int>(s.zukanShiny.size()) && s.zukanShiny[e.monsterId].isSeen;
-			rows_.push_back({ e.monsterId, true, isKnown });
+			rows_.push_back({ e.monsterId, EquipVar::kShiny, isKnown });
+		}
+	}
+
+	//しんえんの シリーズは しんえんが ひらいてから(しんえんの そざいを ひろうと わかる)
+	if (s.hasRelic)
+	{
+		for (const EquipSeries& e : EquipTable::All())
+		{
+			if (!EquipTable::HasAbyss(e.monsterId)) continue;
+			const int id = e.monsterId;
+			const bool isKnown = (id < static_cast<int>(s.abyssMaterials.size()) && s.abyssMaterials[id] > 0) ||
+				(id < static_cast<int>(s.abyssUpperLv.size()) && s.abyssUpperLv[id] >= 0) ||
+				(id < static_cast<int>(s.abyssLowerLv.size()) && s.abyssLowerLv[id] >= 0);
+			rows_.push_back({ id, EquipVar::kAbyss, isKnown });
 		}
 	}
 }
@@ -242,11 +257,11 @@ void SmithScene::UpdateEquip()
 
 	//選べる行動を並べる
 	const SaveSlot& s = SaveManager::GetInstance().Current();
-	const auto& lvs = part_ == 0 ? (r.isShiny ? s.shinyUpperLv : s.upperLv) : (r.isShiny ? s.shinyLowerLv : s.lowerLv);
+	const auto& lvs = s.PartLv(part_, r.var);
 	const int lv = lvs[r.monsterId];
 	const int equipped = part_ == 0 ? s.equipUpper : s.equipLower;
-	const bool isEquippedShiny = part_ == 0 ? s.isEquipUpperShiny : s.isEquipLowerShiny;
-	const bool isEquipped = equipped == r.monsterId && isEquippedShiny == r.isShiny;
+	const int equippedVar = part_ == 0 ? s.equipUpperVar : s.equipLowerVar;
+	const bool isEquipped = equipped == r.monsterId && equippedVar == r.var;
 
 	actions_.clear();
 	if (lv < 0)
@@ -282,8 +297,8 @@ void SmithScene::UpdateEquipAction()
 	SaveSlot& s = SaveManager::GetInstance().Current();
 	const Row& r = rows_[row_];
 	const EquipSeries* e = EquipTable::Find(r.monsterId);
-	auto& lvs = part_ == 0 ? (r.isShiny ? s.shinyUpperLv : s.upperLv) : (r.isShiny ? s.shinyLowerLv : s.lowerLv);
-	auto& mats = r.isShiny ? s.shinyMaterials : s.materials;
+	auto& lvs = s.PartLv(part_, r.var);
+	auto& mats = s.Materials(r.var);
 	int& lv = lvs[r.monsterId];
 	const EquipPart part = part_ == 0 ? EquipPart::Upper : EquipPart::Lower;
 
@@ -296,7 +311,7 @@ void SmithScene::UpdateEquipAction()
 		if (mats[r.monsterId] < cost)
 		{
 			sound.PlaySE(SE::Buzzer);
-			Notice(L"そざいが たりない…（" + EquipTable::MaterialName(*e, r.isShiny) + L" が " + std::to_wstring(cost) + L"こ ひつよう）");
+			Notice(L"そざいが たりない…（" + EquipTable::MaterialName(*e, r.var) + L" が " + std::to_wstring(cost) + L"こ ひつよう）");
 			return;
 		}
 		mats[r.monsterId] -= cost;
@@ -305,7 +320,7 @@ void SmithScene::UpdateEquipAction()
 		sound.PlaySE(SE::Point);
 		Effects::GetInstance().Burst({ 960.0f, 300.0f }, 30, { 255, 200, 120 }, 150.0f, 450.0f, 6.0f, 0.5f, ParticleShape::Spark);
 		Effects::GetInstance().Shake(5.0f, 0.2f);
-		Notice(EquipTable::PartName(*e, part, r.isShiny) + (isMake ? L" を つくった！" : L" を +" + std::to_wstring(lv) + L" に きょうかした！"));
+		Notice(EquipTable::PartName(*e, part, r.var) + (isMake ? L" を つくった！" : L" を +" + std::to_wstring(lv) + L" に きょうかした！"));
 		SaveManager::GetInstance().Save();
 		mode_ = Mode::Equip;
 		return;
@@ -315,8 +330,8 @@ void SmithScene::UpdateEquipAction()
 	if (lv >= 0 && actionCursor_ == 0)
 	{
 		int& equipped = part_ == 0 ? s.equipUpper : s.equipLower;
-		bool& isShiny = part_ == 0 ? s.isEquipUpperShiny : s.isEquipLowerShiny;
-		if (equipped == r.monsterId && isShiny == r.isShiny)
+		int& isShiny = part_ == 0 ? s.equipUpperVar : s.equipLowerVar;
+		if (equipped == r.monsterId && isShiny == r.var)
 		{
 			equipped = -1;
 			sound.PlaySE(SE::Cancel);
@@ -324,9 +339,9 @@ void SmithScene::UpdateEquipAction()
 		else
 		{
 			equipped = r.monsterId;
-			isShiny = r.isShiny;
+			isShiny = r.var;
 			sound.PlaySE(SE::Ready);
-			Notice(EquipTable::PartName(*e, part, r.isShiny) + L" を そうびした");
+			Notice(EquipTable::PartName(*e, part, r.var) + L" を そうびした");
 		}
 		SaveManager::GetInstance().Save();
 		mode_ = Mode::Equip;
@@ -808,13 +823,13 @@ void SmithScene::DrawTop()
 	//今の装備
 	const HeroBonus b = s.GearBonus(nullptr);
 	DrawUtil::Window(240.0f, 488.0f, 1040.0f, 652.0f);
-	auto partText = [&s](int id, bool isShiny, EquipPart part) -> std::wstring
+	auto partText = [&s](int id, int isShiny, EquipPart part) -> std::wstring
 	{
 		const EquipSeries* e = id >= 0 ? EquipTable::Find(id) : nullptr;
 		return e ? EquipTable::PartName(*e, part, isShiny) : L"なし";
 	};
-	const std::wstring equip = L"うえ：" + partText(s.equipUpper, s.isEquipUpperShiny, EquipPart::Upper) +
-		L"　した：" + partText(s.equipLower, s.isEquipLowerShiny, EquipPart::Lower);
+	const std::wstring equip = L"うえ：" + partText(s.equipUpper, s.equipUpperVar, EquipPart::Upper) +
+		L"　した：" + partText(s.equipLower, s.equipLowerVar, EquipPart::Lower);
 	Font::DrawFit(270.0f, 508.0f, equip, GetColor(240, 235, 255), FontSize::Small, GetColor(20, 15, 30), 750.0f);
 	const bool hasCharm = s.equippedCharm >= 0 && s.equippedCharm < static_cast<int>(s.charms.size());
 	Font::DrawFit(270.0f, 544.0f, L"おまもり：" + (hasCharm ? s.charms[s.equippedCharm].Name() : std::wstring(L"なし")) + (KeyItem::OwnedCount(s) > 0 ? L"　／　だいじな もの " + std::to_wstring(KeyItem::OwnedCount(s)) + L"こ" : std::wstring()), GetColor(240, 235, 255), FontSize::Small, GetColor(20, 15, 30), 750.0f);
@@ -872,7 +887,7 @@ void SmithScene::DrawEquip()
 		}
 
 		//モンスターの かお
-		MonsterData icon = r.isShiny ? MonsterTable::ShinyVariant(r.monsterId) : MonsterTable::Get(r.monsterId);
+		MonsterData icon = r.var == EquipVar::kShiny ? MonsterTable::ShinyVariant(r.monsterId) : MonsterTable::Get(r.monsterId);
 		if (!r.isKnown) SetDrawBright(40, 36, 55);
 		UnitDraw::Monster({ 70.0f, y + 14.0f }, 15.0f, icon, r.isKnown ? time_ : 0.0f, 1.0f, false);
 		SetDrawBright(255, 255, 255);
@@ -886,8 +901,8 @@ void SmithScene::DrawEquip()
 
 		//おすすめは 名前の下に 小さな ふだ
 		const std::wstring& rec = r.monsterId < static_cast<int>(recommend_.size()) ? recommend_[r.monsterId] : std::wstring();
-		const unsigned int nameCol = r.isShiny ? GetColor(255, 230, 120) : GetColor(240, 235, 255);
-		Font::DrawFit(96.0f, rec.empty() ? y - 13.0f : y - 21.0f, EquipTable::SeriesName(*e, r.isShiny), nameCol, FontSize::Small, edge, 230.0f);
+		const unsigned int nameCol = r.var == EquipVar::kAbyss ? GetColor(210, 160, 255) : (r.var == EquipVar::kShiny ? GetColor(255, 230, 120) : GetColor(240, 235, 255));
+		Font::DrawFit(96.0f, rec.empty() ? y - 13.0f : y - 21.0f, EquipTable::SeriesName(*e, r.var), nameCol, FontSize::Small, edge, 230.0f);
 		if (!rec.empty())
 		{
 			const std::wstring tag = L"おすすめ：" + rec;
@@ -896,14 +911,14 @@ void SmithScene::DrawEquip()
 			DrawExtendStringToHandle(100, static_cast<int>(y + 5.0f), 0.6, 0.6, tag.c_str(), GetColor(255, 250, 235), font);
 		}
 
-		const int mat = (r.isShiny ? s.shinyMaterials : s.materials)[r.monsterId];
+		const int mat = s.Materials(r.var)[r.monsterId];
 		for (int p = 0; p < 2; p++)
 		{
-			const auto& lvs = p == 0 ? (r.isShiny ? s.shinyUpperLv : s.upperLv) : (r.isShiny ? s.shinyLowerLv : s.lowerLv);
+			const auto& lvs = s.PartLv(p, r.var);
 			const int lv = lvs[r.monsterId];
 			const int equipped = p == 0 ? s.equipUpper : s.equipLower;
-			const bool isEqShiny = p == 0 ? s.isEquipUpperShiny : s.isEquipLowerShiny;
-			const bool isEquipped = lv >= 0 && equipped == r.monsterId && isEqShiny == r.isShiny;
+			const int eqVar = p == 0 ? s.equipUpperVar : s.equipLowerVar;
+			const bool isEquipped = lv >= 0 && equipped == r.monsterId && eqVar == r.var;
 			const bool canPay = lv < EquipTable::kMaxLevel && mat >= EquipTable::Cost(lv);
 			const float px = 390.0f + p * 105.0f;
 
@@ -964,8 +979,10 @@ void SmithScene::DrawEquip()
 		Font::DrawCenter(975.0f, 300.0f, L"まだ みつけていない モンスター", GetColor(150, 140, 170), FontSize::Small, edge);
 		return;
 	}
-	const MonsterData m = r.isShiny ? MonsterTable::ShinyVariant(r.monsterId) : MonsterTable::Get(r.monsterId);
-	UnitDraw::Monster({ 975.0f, 210.0f }, 56.0f, m, time_, 1.0f, false);
+	const MonsterData m = r.var == EquipVar::kShiny ? MonsterTable::ShinyVariant(r.monsterId) : MonsterTable::Get(r.monsterId);
+	//しんえんの シリーズは オーラつきで みせる
+	if (r.var == EquipVar::kAbyss) AuraRenderer::Draw({ 975.0f, 210.0f }, { 170, 110, 240 }, time_, [&](const Vec2& f) { UnitDraw::Monster(f, 56.0f, m, time_, 1.0f, false); });
+	else UnitDraw::Monster({ 975.0f, 210.0f }, 56.0f, m, time_, 1.0f, false);
 
 	//おすすめの ふだ
 	if (r.monsterId < static_cast<int>(recommend_.size()) && !recommend_[r.monsterId].empty())
@@ -978,32 +995,32 @@ void SmithScene::DrawEquip()
 	}
 
 	const EquipPart part = part_ == 0 ? EquipPart::Upper : EquipPart::Lower;
-	const auto& lvs = part_ == 0 ? (r.isShiny ? s.shinyUpperLv : s.upperLv) : (r.isShiny ? s.shinyLowerLv : s.lowerLv);
+	const auto& lvs = s.PartLv(part_, r.var);
 	const int lv = lvs[r.monsterId];
-	Font::DrawCenterFit(975.0f, 250.0f, EquipTable::PartName(*e, part, r.isShiny), GetColor(255, 240, 160), FontSize::Small, edge, 500.0f);
+	Font::DrawCenterFit(975.0f, 250.0f, EquipTable::PartName(*e, part, r.var), GetColor(255, 240, 160), FontSize::Small, edge, 500.0f);
 
-	const SkillValue now = EquipTable::PartSkill(*e, part, r.isShiny, std::max(0, lv));
+	const SkillValue now = EquipTable::PartSkill(*e, part, r.var, std::max(0, lv));
 	Font::DrawFit(730.0f, 280.0f, L"スキル：" + SkillInfo::Describe(now), GetColor(200, 230, 255), FontSize::Small, edge, 495.0f);
 	if (lv >= 0 && lv < EquipTable::kMaxLevel)
 	{
-		const std::wstring next = L"　→ つぎ：" + SkillInfo::Describe(EquipTable::PartSkill(*e, part, r.isShiny, lv + 1));
+		const std::wstring next = L"　→ つぎ：" + SkillInfo::Describe(EquipTable::PartSkill(*e, part, r.var, lv + 1));
 		Font::DrawFit(730.0f, 312.0f, next, GetColor(160, 200, 240), FontSize::Small, edge, 495.0f);
 	}
 
 	const std::wstring cost = lv >= EquipTable::kMaxLevel ? L"さいだいまで きょうか ずみ" :
-		(lv < 0 ? L"つくる：" : L"きょうか：") + EquipTable::MaterialName(*e, r.isShiny) + L" ×" + std::to_wstring(EquipTable::Cost(lv));
+		(lv < 0 ? L"つくる：" : L"きょうか：") + EquipTable::MaterialName(*e, r.var) + L" ×" + std::to_wstring(EquipTable::Cost(lv));
 	Font::DrawFit(730.0f, 350.0f, cost, GetColor(200, 255, 200), FontSize::Small, edge, 495.0f);
 
 	Font::DrawFit(730.0f, 405.0f, L"シリーズスキル（うえ・した そろえる）", GetColor(255, 220, 140), FontSize::Small, edge, 495.0f);
-	const SkillValue series = EquipTable::SeriesSkill(*e, r.isShiny);
-	Font::DrawFit(750.0f, 440.0f, EquipTable::SeriesName(*e, r.isShiny) + L"：", GetColor(255, 240, 200), FontSize::Small, edge, 475.0f);
+	const SkillValue series = EquipTable::SeriesSkill(*e, r.var);
+	Font::DrawFit(750.0f, 440.0f, EquipTable::SeriesName(*e, r.var) + L"：", GetColor(255, 240, 200), FontSize::Small, edge, 475.0f);
 	std::wstring seriesText = SkillInfo::Describe(series);
-	const SkillValue extra = r.isShiny ? EquipTable::ShinyExtra(r.monsterId) : SkillValue();
+	const SkillValue extra = EquipTable::VariantExtra(r.monsterId, r.var);
 	if (extra.kind != SkillKind::None) seriesText += L"　＋ " + SkillInfo::Describe(extra);
 	Font::DrawFit(770.0f, 472.0f, seriesText, extra.kind != SkillKind::None ? GetColor(255, 220, 120) : GetColor(255, 240, 200), FontSize::Small, edge, 455.0f);
 
 	const bool isSetActive = s.equipUpper == r.monsterId && s.equipLower == r.monsterId &&
-		s.isEquipUpperShiny == r.isShiny && s.isEquipLowerShiny == r.isShiny;
+		s.equipUpperVar == r.var && s.equipLowerVar == r.var;
 	if (isSetActive) DrawStringToHandle(750, 512, L"★ はつどう ちゅう！", GetColor(255, 230, 80), fontS, edge);
 
 	//えらんでいる部位のスキルの効果
@@ -1133,7 +1150,19 @@ void SmithScene::DrawCharm()
 	{
 		const Charm& c = s.charms[CharmIndexAt(charmCursor_)];
 		Font::DrawCenterFit(975.0f, 110.0f, c.Name(), Game::ToColor(CharmMaker::RarityColor(c.rarity)), FontSize::Small, edge, 500.0f);
-		for (int k = 0; k < c.rarity; k++) DrawUtil::Star(900.0f + k * 38.0f, 160.0f, 14.0f, 0.0f, Game::ToColor(CharmMaker::RarityColor(c.rarity)));
+		if (c.rarity >= 6)
+		{
+			//★6 は しんえんの オーラを まとう
+			const unsigned int starCol = Game::ToColor(CharmMaker::RarityColor(c.rarity));
+			AuraRenderer::Draw({ 975.0f, 208.0f }, { 255, 90, 200 }, time_, [&](const Vec2& f)
+			{
+				for (int k = 0; k < c.rarity; k++) DrawUtil::Star(f.x - 95.0f + k * 38.0f, f.y - 48.0f, 14.0f, time_ * 0.8f + k, starCol);
+			});
+		}
+		else
+		{
+			for (int k = 0; k < c.rarity; k++) DrawUtil::Star(900.0f + k * 38.0f, 160.0f, 14.0f, 0.0f, Game::ToColor(CharmMaker::RarityColor(c.rarity)));
+		}
 		Font::DrawFit(730.0f, 210.0f, L"メイン：" + SkillInfo::Describe(c.main), GetColor(255, 220, 160), FontSize::Small, edge, 495.0f);
 		for (size_t k = 0; k < c.subs.size(); k++)
 		{
@@ -1142,6 +1171,11 @@ void SmithScene::DrawCharm()
 		if (c.rare.kind != SkillKind::None)
 		{
 			Font::DrawFit(730.0f, 400.0f, L"レア：" + SkillInfo::Describe(c.rare), GetColor(255, 200, 255), FontSize::Small, edge, 495.0f);
+		}
+		if (c.abyss.kind != SkillKind::None)
+		{
+			Font::DrawFit(730.0f, 440.0f, L"しんえん：" + SkillInfo::Describe(c.abyss), GetColor(255, 140, 210), FontSize::Small, edge, 495.0f);
+			Font::DrawFit(730.0f, 474.0f, L"（しんえんで だけ おちる ★6。しんえんの なかで きく）", GetColor(190, 150, 200), FontSize::Small, edge, 495.0f);
 		}
 	}
 	ButtonGuide::DrawCenter(975.0f, 570.0f, L"{A}：えらぶ　{B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
@@ -1338,7 +1372,27 @@ std::vector<std::wstring> SmithScene::SkillSources(int kind) const
 		}
 	}
 	if (!shinySeries.empty()) out.push_back(L"いろちがいの シリーズ：" + shinySeries);
+
+	//しんえんの シリーズの しんえんスキル(しんえんが ひらいてから)
+	std::wstring abyssSeries;
+	int abyssNum = 0;
+	if (s.hasRelic)
+	{
+		for (const EquipSeries& e : EquipTable::All())
+		{
+			if (!EquipTable::HasAbyss(e.monsterId) || EquipTable::AbyssExtra(e.monsterId).kind != k) continue;
+			abyssNum++;
+			if (abyssNum <= 4) add(abyssSeries, EquipTable::SeriesName(e, EquipVar::kAbyss));
+		}
+	}
+	if (!abyssSeries.empty()) out.push_back(L"しんえんの シリーズ：" + abyssSeries + (abyssNum > 4 ? L" ほか" + std::to_wstring(abyssNum - 4) + L"こ" : L""));
 	if (unknown > 0) out.push_back(L"まだ みつけていない モンスターの そうび：" + std::to_wstring(unknown) + L"こ");
+
+	//しんえんスキル: ★6 の おまもり(しんえんが ひらくまで かくす)
+	if (k == SkillKind::AbyssPower || k == SkillKind::AbyssGuard || k == SkillKind::DeepBlessing)
+	{
+		out.push_back(s.hasRelic ? L"★6 おまもりの しんえんスキル（しんえんで だけ おちる）" : L"？？？（むげんの めいきゅうを とうはすると わかる）");
+	}
 
 	//お守り(クリア前は かくす)
 	const auto& mains = CharmMaker::MainKinds();

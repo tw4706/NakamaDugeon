@@ -33,6 +33,8 @@ struct Unit
 	bool isAlive = true;
 	bool isShiny = false;
 	bool isElite = false;		//無限ダンジョンの強敵
+	bool isAbyss = false;		//しんえん版(オーラを まとい、つよい。なかまに ならない)
+	Skill abyssSkill = Skill::None;	//しんえん版に ついた もう1つの とくぎ
 	bool isNoticed = false;		//色違い・強敵の登場演出を出したか
 	int bonusHp = 0;			//だいじな もので ふえた さいだいHP(なかま)
 
@@ -43,6 +45,13 @@ struct Unit
 	int burnDamage = 0;
 	int paralyzeTurns = 0;
 	bool isStunned = false;
+	int weakenTurns = 0;		//よわらせる(こうげき・ぼうぎょ -20%)
+
+	//あたらしい とくぎ(ver1.7)
+	bool isSplit = false;		//ぶんれつ ずみ(もう わかれない)・なかまは ふっかつ ずみ
+	int stolenMaterial = -1;	//どろぼうが ぬすんだ そざい(-1は なし)
+	int chargeCooldown = 0;		//とっしんの まちじかん
+	int allyHitTurn = -100;		//なかまに さいごに こうげきされた ターン(れんけい)
 
 	//演出
 	float hitFlash = 0.0f;
@@ -51,6 +60,11 @@ struct Unit
 	float facing = 1.0f;
 
 	bool IsParty() const { return faction != Faction::Enemy; }
+
+	/// <summary>
+	/// その とくぎを もっているか(しんえん版の もう1つも ふくむ)
+	/// </summary>
+	bool HasSkill(Skill s) const { return skill == s || abyssSkill == s; }
 	bool IsBoss() const { return monsterId >= 0 && MonsterTable::Get(monsterId).type == MonsterType::Boss; }
 
 	/// <summary>

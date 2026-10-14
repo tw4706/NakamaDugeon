@@ -1,4 +1,6 @@
 ﻿#include "EquipData.h"
+#include "MonsterData.h"
+#include "Stage.h"
 #include<fstream>
 #include<sstream>
 #include<algorithm>
@@ -16,13 +18,20 @@ namespace
 		return w;
 	}
 
+	//しゅるいごとの つよさ(いろちがい ×1.5・しんえん ×1.8)
+	float VariantRate(int variant)
+	{
+		if (variant == EquipVar::kAbyss) return 1.8f;
+		return variant == EquipVar::kShiny ? 1.5f : 1.0f;
+	}
+
 	//レベルで伸びない(オンオフだけの)スキル
 	bool IsFixed(SkillKind kind)
 	{
 		return kind == SkillKind::FloorHeal || kind == SkillKind::Guts || kind == SkillKind::AllySlot ||
 			kind == SkillKind::Poison || kind == SkillKind::Paralyze || kind == SkillKind::Burn ||
 			kind == SkillKind::Wide || kind == SkillKind::Command || kind == SkillKind::Luck || kind == SkillKind::Blast ||
-			kind == SkillKind::Guard || kind == SkillKind::StairSense || kind == SkillKind::TreasureSense;
+			kind == SkillKind::Guard || kind == SkillKind::StairSense || kind == SkillKind::TreasureSense || kind == SkillKind::FirstStrike;
 	}
 }
 
@@ -73,38 +82,42 @@ const EquipSeries* EquipTable::Find(int monsterId)
 	return nullptr;
 }
 
-std::wstring EquipTable::PartName(const EquipSeries& s, EquipPart part, bool isShiny)
+std::wstring EquipTable::PartName(const EquipSeries& s, EquipPart part, int variant)
 {
 	const std::wstring& base = part == EquipPart::Upper ? s.upperName : s.lowerName;
-	return isShiny ? L"かがやく" + base : base;
+	if (variant == EquipVar::kAbyss) return L"しんえんの" + base;
+	return variant == EquipVar::kShiny ? L"かがやく" + base : base;
 }
 
-std::wstring EquipTable::SeriesName(const EquipSeries& s, bool isShiny)
+std::wstring EquipTable::SeriesName(const EquipSeries& s, int variant)
 {
-	return isShiny ? L"かがやく " + s.seriesName : s.seriesName;
+	if (variant == EquipVar::kAbyss) return L"しんえんの " + s.seriesName;
+	return variant == EquipVar::kShiny ? L"かがやく " + s.seriesName : s.seriesName;
 }
 
-std::wstring EquipTable::MaterialName(const EquipSeries& s, bool isShiny)
+std::wstring EquipTable::MaterialName(const EquipSeries& s, int variant)
 {
-	return isShiny ? L"きらめく" + s.material : s.material;
+	if (variant == EquipVar::kAbyss) return L"しんえんの" + s.material;
+	return variant == EquipVar::kShiny ? L"きらめく" + s.material : s.material;
 }
 
-SkillValue EquipTable::PartSkill(const EquipSeries& s, EquipPart part, bool isShiny, int level)
+SkillValue EquipTable::PartSkill(const EquipSeries& s, EquipPart part, int variant, int level)
 {
 	SkillValue v = part == EquipPart::Upper ? s.upperSkill : s.lowerSkill;
 	if (IsFixed(v.kind)) return v;
 
 	//強化1回につき25%ずつ伸びる(最低+1)
-	const float rate = (1.0f + 0.25f * std::max(0, level)) * (isShiny ? 1.5f : 1.0f);
+	const float rate = (1.0f + 0.25f * std::max(0, level)) * VariantRate(variant);
 	v.value = std::max(v.value + std::max(0, level), static_cast<int>(v.value * rate + 0.5f));
 	return v;
 }
 
-SkillValue EquipTable::SeriesSkill(const EquipSeries& s, bool isShiny)
+SkillValue EquipTable::SeriesSkill(const EquipSeries& s, int variant)
 {
 	SkillValue v = s.seriesSkill;
-	if (isShiny && !IsFixed(v.kind)) v.value = static_cast<int>(v.value * 1.5f + 0.5f);
-	if (isShiny && IsFixed(v.kind) && v.kind != SkillKind::FloorHeal) v.value += 1;
+	const bool isSpecial = variant != EquipVar::kNormal;
+	if (isSpecial && !IsFixed(v.kind)) v.value = static_cast<int>(v.value * 1.5f + 0.5f);
+	if (isSpecial && IsFixed(v.kind) && v.kind != SkillKind::FloorHeal) v.value += 1;
 	return v;
 }
 
@@ -146,4 +159,44 @@ SkillValue EquipTable::ShinyExtra(int monsterId)
 	default:
 		return { SkillKind::None, 0 };
 	}
+}
+
+SkillValue EquipTable::AbyssExtra(int monsterId)
+{
+	//しんえんの ぬしの シリーズ
+	if (monsterId == 41) return { SkillKind::AbyssGuard, 25 };
+	if (monsterId == 44) return { SkillKind::AbyssPower, 25 };
+	if (monsterId == Stage::kAbyssFinalBoss) return { SkillKind::AbyssGuard, 30 };
+
+	//いろちがいの ついかスキルと おなじ なかまわけ: せめ→やみの ちから、まもり→やみの よろい、ほか→ふかみの めぐみ
+	switch (ShinyExtra(monsterId).kind)
+	{
+	case SkillKind::Desperate:
+	case SkillKind::VenomEdge:
+	case SkillKind::Freeze:
+		return { SkillKind::AbyssPower, 20 };
+	case SkillKind::Counter:
+		return { SkillKind::AbyssGuard, 20 };
+	default:
+		return { SkillKind::DeepBlessing, 10 };
+	}
+}
+
+SkillValue EquipTable::VariantExtra(int monsterId, int variant)
+{
+	if (variant == EquipVar::kShiny) return ShinyExtra(monsterId);
+	if (variant == EquipVar::kAbyss) return AbyssExtra(monsterId);
+	return { SkillKind::None, 0 };
+}
+
+bool EquipTable::HasAbyss(int monsterId)
+{
+	//しんえんに でる まもの(むげん B61〜100 の ふつうの まもの)と しんえんの ぬし
+	if (monsterId < 0 || monsterId >= static_cast<int>(MonsterTable::All().size())) return false;
+	for (int f = Stage::kAbyssFirstFloor; f <= Stage::kAbyssLastFloor; f++)
+	{
+		if (Stage::AbyssBossFor(f) == monsterId) return true;
+	}
+	const MonsterData& m = MonsterTable::Get(monsterId);
+	return m.type == MonsterType::Normal && m.infMaxFloor >= Stage::AbyssSourceFloor(Stage::kAbyssFirstFloor);
 }

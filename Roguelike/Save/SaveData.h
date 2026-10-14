@@ -73,6 +73,7 @@ struct RunData
 
 	int rank = 0;		//キラプルンの すみかの むずかしさ
 	int tickets = 0;	//この冒険で ひろった しゅぎょうの きっぷ
+	std::vector<int> abyssMaterials;	//この冒険で ひろった しんえんの そざい
 
 	//たべた りょうり(この冒険の あいだ きく。-1は なし)
 	int mealFish = -1;
@@ -132,6 +133,11 @@ struct SaveSlot
 	int keyItems = 0;	//ぬしを たおして もらった だいじな もの(KeyItem の ばんごうの ビット)
 	std::vector<PartyMember> lastParty;	//まえに つれていった なかま
 	int tickets = 0;	//しゅぎょうの きっぷ(キラプルンの すみかに はいるとき つかう)
+	int deepestAbyss = 0;	//しんえんで たどりついた いちばん ふかい階(0は まだ)
+	bool isAbyssCleared = false;	//しんえんの さいごの ぬしを たおした
+	int titles = 0;			//てにいれた しょうごう(Title の ばんごうの ビット)
+	int lastAbyss = 0;		//しんえんで 前回 おわった階(0は なし)
+	std::vector<int> abyssMaterials;	//しんえんの そざい(モンスターごと。しんえん そうびに つかう)
 
 	//たきびで つくった りょうり(つぎの あたらしい冒険で たべる。-1は なし)
 	int mealFish = -1;
@@ -160,12 +166,26 @@ struct SaveSlot
 	std::vector<int> lowerLv;
 	std::vector<int> shinyUpperLv;
 	std::vector<int> shinyLowerLv;
+	std::vector<int> abyssUpperLv;
+	std::vector<int> abyssLowerLv;
 
-	//付けている装備(モンスターID、-1は無し)
+	//付けている装備(モンスターID、-1は無し)と しゅるい(EquipVar)
 	int equipUpper = -1;
-	bool isEquipUpperShiny = false;
+	int equipUpperVar = 0;
 	int equipLower = -1;
-	bool isEquipLowerShiny = false;
+	int equipLowerVar = 0;
+
+	/// <summary>
+	/// しゅるい(EquipVar)ごとの 強化レベル・そざい
+	/// </summary>
+	std::vector<int>& UpperLv(int variant) { return variant == 2 ? abyssUpperLv : (variant == 1 ? shinyUpperLv : upperLv); }
+	std::vector<int>& LowerLv(int variant) { return variant == 2 ? abyssLowerLv : (variant == 1 ? shinyLowerLv : lowerLv); }
+	std::vector<int>& Materials(int variant) { return variant == 2 ? abyssMaterials : (variant == 1 ? shinyMaterials : materials); }
+	const std::vector<int>& UpperLv(int variant) const { return variant == 2 ? abyssUpperLv : (variant == 1 ? shinyUpperLv : upperLv); }
+	const std::vector<int>& LowerLv(int variant) const { return variant == 2 ? abyssLowerLv : (variant == 1 ? shinyLowerLv : lowerLv); }
+	const std::vector<int>& Materials(int variant) const { return variant == 2 ? abyssMaterials : (variant == 1 ? shinyMaterials : materials); }
+	std::vector<int>& PartLv(int part, int variant) { return part == 0 ? UpperLv(variant) : LowerLv(variant); }
+	const std::vector<int>& PartLv(int part, int variant) const { return part == 0 ? UpperLv(variant) : LowerLv(variant); }
 
 	std::vector<Charm> charms;
 	int equippedCharm = -1;
@@ -198,6 +218,27 @@ namespace Relic
 	/// ずっと効くスキル
 	/// </summary>
 	const std::vector<SkillValue>& Skills();
+}
+
+/// <summary>
+/// しょうごう(しんえんの きろくで もらえる。つよさには かかわらない)
+/// </summary>
+namespace Title
+{
+	int Count();
+	const wchar_t* Name(int index);
+	const wchar_t* HowTo(int index);
+	bool IsOwned(const SaveSlot& s, int index);
+
+	/// <summary>
+	/// じょうけんを みたした しょうごうを わたす(あたらしく もらった ばんごうを かえす)
+	/// </summary>
+	std::vector<int> Update(SaveSlot& s);
+
+	/// <summary>
+	/// もっている いちばん えらい しょうごう(なければ -1)
+	/// </summary>
+	int Best(const SaveSlot& s);
 }
 
 /// <summary>

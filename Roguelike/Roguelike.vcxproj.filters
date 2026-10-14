@@ -96,6 +96,15 @@
     <ClCompile Include="System\Sprite.cpp">
       <Filter>System</Filter>
     </ClCompile>
+    <ClCompile Include="System\AuraRenderer.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\PixelArt.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\ShaderUtil.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
     <ClCompile Include="System\ButtonGuide.cpp">
       <Filter>System</Filter>
     </ClCompile>
@@ -158,6 +167,9 @@
     <ClInclude Include="Save\SaveData.h">
       <Filter>Save</Filter>
     </ClInclude>
+    <ClInclude Include="Save\HeroGrowth.h">
+      <Filter>Save</Filter>
+    </ClInclude>
     <ClInclude Include="Scene\CampScene.h">
       <Filter>Scene</Filter>
     </ClInclude>
@@ -201,6 +213,15 @@
       <Filter>Scene</Filter>
     </ClInclude>
     <ClInclude Include="System\Sprite.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="System\AuraRenderer.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="System\PixelArt.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="System\ShaderUtil.h">
       <Filter>System</Filter>
     </ClInclude>
     <ClInclude Include="System\ButtonGuide.h">

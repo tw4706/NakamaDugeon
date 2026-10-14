@@ -56,6 +56,12 @@ namespace
 		{ "swift", L"はやあし", L"%" },
 		{ "stairs", L"かいだんの けはい", L"" },
 		{ "treasuresense", L"たからの におい", L"" },
+		{ "abysspower", L"やみの ちから", L"%" },
+		{ "abyssguard", L"やみの よろい", L"%" },
+		{ "deepblessing", L"ふかみの めぐみ", L"%" },
+		{ "finisher", L"とどめ", L"%" },
+		{ "firststrike", L"せんせい", L"" },
+		{ "combo", L"れんけい", L"%" },
 	};
 }
 
@@ -131,6 +137,12 @@ const wchar_t* SkillInfo::Summary(SkillKind kind)
 	case SkillKind::Swift:		return L"ダンジョンを あるく はやさが あがる。";
 	case SkillKind::StairSense:	return L"かいに おりたとき、かいだんの まわりが ちずに うつる。";
 	case SkillKind::TreasureSense:	return L"キラプルン・いろちがい・つよい まものの いばしょが ミニマップに うつる。";
+	case SkillKind::AbyssPower:	return L"しんえんの くるった まものに あたえる ダメージが あがる（しんえんスキル）。";
+	case SkillKind::AbyssGuard:	return L"しんえんの くるった まものから うける ダメージが へる（しんえんスキル）。";
+	case SkillKind::DeepBlessing:	return L"しんえんで かいだんを おりるたび HPが かいふくする（しんえんスキル）。";
+	case SkillKind::Finisher:	return L"HPが すくない てきに あたえる ダメージが あがる。";
+	case SkillKind::FirstStrike:	return L"HPが まんたんの てきへの こうげきは かならず かいしんに なる（どの てきにも さいしょの いちげきが かいしん）。";
+	case SkillKind::Combo:	return L"なかまが さっき こうげきした てきに あたえる ダメージが あがる。";
 	default:					return L"";
 	}
 }
@@ -145,7 +157,7 @@ std::wstring SkillInfo::Explain(const SkillValue& s)
 	case SkillKind::Def:		return L"ぼうぎょ +" + n + L"（うける ダメージが やく " + std::to_wstring(v / 2) + (v % 2 ? L".5" : L"") + L" へる）";
 	case SkillKind::Hp:			return L"さいだいHP +" + n;
 	case SkillKind::Crit:		return L"かいしんの かくりつ +" + n + L"%（もとは 6%）";
-	case SkillKind::Regen:		return L"4ターンごとに さいだいHPの " + std::to_wstring(v / 2) + (v % 2 ? L".5" : L"") + L"%（さいてい " + n + L"）かいふく";
+	case SkillKind::Regen:		return L"4ターンごとに さいだいHPの " + std::to_wstring(v * 3 / 2) + (v % 2 ? L".5" : L"") + L"%（さいてい " + n + L"）かいふく";
 	case SkillKind::Exp:		return L"もらえる けいけんちが " + n + L"% ふえる";
 	case SkillKind::Vision:		return L"みえる はんいが " + n + L"マス ひろがる";
 	case SkillKind::Resist:		return L"どくに なる かくりつ -" + n + L"%、まひ・えんじょう -" + std::to_wstring(v / 2) + L"%";
@@ -188,6 +200,12 @@ std::wstring SkillInfo::Explain(const SkillValue& s)
 	case SkillKind::Swift:		return L"あるく はやさ +" + n + L"%";
 	case SkillKind::StairSense:	return L"かいに おりると かいだんの まわりが ちずに うつる";
 	case SkillKind::TreasureSense:	return L"キラプルン・いろちがい・つよい まものが ミニマップに うつる";
+	case SkillKind::AbyssPower:	return L"しんえん版へ ダメージ +" + n + L"%";
+	case SkillKind::AbyssGuard:	return L"しんえん版から うける ダメージ -" + n + L"%（さいだい 60%）";
+	case SkillKind::DeepBlessing:	return L"しんえんで かいを おりると さいだいHPの " + n + L"% かいふく";
+	case SkillKind::Finisher:	return L"HP 30% いかの てきへ ダメージ +" + n + L"%";
+	case SkillKind::FirstStrike:	return L"HPが まんたんの てきへの こうげきは かならず かいしん";
+	case SkillKind::Combo:	return L"なかまが こうげきした ばかりの てきへ ダメージ +" + n + L"%";
 	default:					return L"";
 	}
 }

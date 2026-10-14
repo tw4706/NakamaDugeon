@@ -11,6 +11,8 @@
 #include "Sound.h"
 #include "Font.h"
 #include "Sprite.h"
+#include "AuraRenderer.h"
+#include "PixelArt.h"
 #include "Effects.h"
 #include "EffekseerForDXLib.h"
 #include<DxLib.h>
@@ -82,6 +84,10 @@ bool Application::Init()
 	Sound::GetInstance().Init();
 	Sound::GetInstance().SetVolume(settings.BgmLevel(), settings.SeLevel());
 
+	//しんえんの オーラと キャラの ドット絵(つかえなければ かんたんな ひょうじ)
+	AuraRenderer::Init();
+	PixelArt::Init();
+
 	return true;
 }
 
@@ -136,6 +142,8 @@ void Application::Terminate()
 	Sound::GetInstance().Terminate();
 	Font::Terminate();
 	Sprite::Terminate();
+	AuraRenderer::Terminate();
+	PixelArt::Terminate();
 	DeleteGraph(gameScreen_);
 	Effkseer_End();
 	DxLib_End();

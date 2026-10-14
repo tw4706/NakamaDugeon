@@ -37,3 +37,8 @@
 
 # ImGui window layout
 imgui.ini
+
+# しんえんの オーラの デバッグ出力
+aura_log.txt
+aura_preview.png
+pixel_log.txt

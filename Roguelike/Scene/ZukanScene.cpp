@@ -154,7 +154,7 @@ void ZukanScene::Draw()
 
 		MonsterData m = isShinyPage_ ? MonsterTable::ShinyVariant(i) : all[i];
 		if (!z.isSeen) m.color = { 25, 22, 35 };
-		const float size = m.type == MonsterType::Boss ? 34.0f : 28.0f;
+		const float size = m.type == MonsterType::Boss ? 38.0f : 36.0f;
 		//まだ みていない ものは まっくろな かげに
 		if (!z.isSeen) SetDrawBright(40, 36, 55);
 		UnitDraw::Monster({ cx, y + 82.0f }, size, m, z.isSeen ? time_ : 0.0f, 1.0f, false);

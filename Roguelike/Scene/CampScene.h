@@ -14,7 +14,8 @@
 class CampScene : public Scene
 {
 public:
-	CampScene(SceneManager& manager);
+	/// <param name="start">さいしょに たつ マス(しょこ・いけから もどったときなど)</param>
+	CampScene(SceneManager& manager, const Cell& start = { 13, 5 });
 
 	void Init() override;
 	void Update() override;
@@ -32,6 +33,7 @@ private:
 		Smith,
 		Fire,
 		Notice,
+		Pond,
 	};
 
 	enum class Mode
@@ -46,6 +48,9 @@ private:
 		KeyItems,		//だいじな もの
 		PartySelect,	//つれていく なかまを えらぶ
 		RankSelect,		//キラプルンの すみかの むずかしさ
+		LibraryMenu,	//しょこで よむ ずかんを えらぶ
+		FireMenu,		//たきび(りょうり・せってい)
+		Cook,			//りょうりする さかなを えらぶ
 	};
 
 	/// <summary>
@@ -110,11 +115,24 @@ private:
 	void DrawNewMarks();
 	void DrawUnlock();
 	void UpdateUnlock();
+	void UpdateLibraryMenu();
+	void DrawLibraryMenu();
+	void UpdateFireMenu();
+	void DrawFireMenu();
+	void OpenCook();
+	void UpdateCook();
+	void DrawCook();
+
+	/// <summary>
+	/// つぎの ぼうけんで たべる りょうりの せつめい(なければ からっぽ)
+	/// </summary>
+	std::wstring PendingMealText() const;
 
 	bool blocked_[kRows][kCols] = {};
 	Spot spots_[kRows][kCols] = {};
 	bool path_[kRows][kCols] = {};
 
+	Cell startCell_;
 	Cell heroCell_ = { 13, 6 };
 	Vec2 heroPos_;
 	float heroFacing_ = 1.0f;
@@ -131,6 +149,11 @@ private:
 	int rankCursor_ = 0;				//キラプルンの すみかの むずかしさ
 	int stageCursor_ = 0;				//えらんでいる いきさき(かくにん中も おぼえておく)
 	int areaCursor_ = 0;				//くわしく 見ている エリア
+	int libraryCursor_ = 0;				//しょこの ずかん(0:モンスター 1:つり 2:やめる)
+	int fireCursor_ = 0;				//たきび(0:りょうり 1:せってい 2:やめる)
+	std::vector<int> cookList_;			//もっている さかな(FishTable の ばんごう)
+	int cookCursor_ = 0;
+	int cookTop_ = 0;
 
 	/// <summary>
 	/// えらんだ いきさきの ステージ(つづきからは その ステージ、やめるは -1)

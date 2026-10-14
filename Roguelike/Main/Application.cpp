@@ -10,6 +10,7 @@
 #include "Input.h"
 #include "Sound.h"
 #include "Font.h"
+#include "Sprite.h"
 #include "Effects.h"
 #include "EffekseerForDXLib.h"
 #include<DxLib.h>
@@ -72,6 +73,12 @@ bool Application::Init()
 	gameScreen_ = MakeScreen(Game::kScreenWidth, Game::kScreenHeight, FALSE);
 
 	Font::Init();
+	if (!Sprite::Init())
+	{
+		MessageBox(nullptr, L"data/gfx の ドット絵が よめません", L"エラー", MB_OK);
+		DxLib_End();
+		return false;
+	}
 	Sound::GetInstance().Init();
 	Sound::GetInstance().SetVolume(settings.BgmLevel(), settings.SeLevel());
 
@@ -128,6 +135,7 @@ void Application::Terminate()
 {
 	Sound::GetInstance().Terminate();
 	Font::Terminate();
+	Sprite::Terminate();
 	DeleteGraph(gameScreen_);
 	Effkseer_End();
 	DxLib_End();

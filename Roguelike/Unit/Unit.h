@@ -69,7 +69,7 @@ namespace UnitDraw
 	/// <summary>
 	/// 主人公の描画
 	/// </summary>
-	void Hero(const Vec2& feet, float size, float time, float facing, bool isHurt);
+	void Hero(const Vec2& feet, float size, float time, float facing, bool isHurt, bool hasSword = true);
 
 	/// <summary>
 	/// モンスターの描画

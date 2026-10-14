@@ -8,6 +8,7 @@
 #include "Font.h"
 #include<DxLib.h>
 #include<cmath>
+#include<algorithm>
 
 bool KeyItemMenu::Update()
 {
@@ -39,15 +40,16 @@ void KeyItemMenu::Draw() const
 
 	//いちらん
 	DrawUtil::Window(60.0f, 95.0f, 560.0f, 600.0f);
+	const float rowH = std::min(72.0f, 450.0f / num);	//ふえても まどに おさまるように
 	for (int i = 0; i < num; i++)
 	{
-		const float y = 140.0f + i * 72.0f;
+		const float y = 140.0f + i * rowH;
 		const bool isSel = i == cursor_;
 		const bool isOwned = KeyItem::IsOwned(s, i);
 		if (isSel)
 		{
 			SetDrawBlendMode(DX_BLENDMODE_ALPHA, 70);
-			DrawBoxAA(76.0f, y - 30.0f, 544.0f, y + 30.0f, GetColor(255, 220, 120), TRUE);
+			DrawBoxAA(76.0f, y - rowH * 0.5f + 4.0f, 544.0f, y + rowH * 0.5f - 4.0f, GetColor(255, 220, 120), TRUE);
 			SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 		}
 
@@ -56,7 +58,7 @@ void KeyItemMenu::Draw() const
 		if (isOwned)
 		{
 			SetDrawBlendMode(DX_BLENDMODE_ADD, static_cast<int>(90 + 50 * std::sin(time_ * 3.0f + i)));
-			DrawCircleAA(gx, y, 24.0f, 20, GetColor(255, 190, 80), TRUE);
+			DrawCircleAA(gx, y, std::min(24.0f, rowH * 0.45f), 20, GetColor(255, 190, 80), TRUE);
 			SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 			DrawUtil::Star(gx, y, 16.0f, time_ * 0.8f + i, GetColor(255, 220, 90));
 		}
@@ -86,13 +88,16 @@ void KeyItemMenu::Draw() const
 			Font::DrawFit(630.0f, y, line, GetColor(200, 240, 210), FontSize::Small, edge, 560.0f);
 			y += 32.0f;
 		}
-		const std::wstring from = L"てにいれた ばしょ：" + MonsterTable::Get(d.bossId).name + L"を たおした";
+		const std::wstring from = d.fishKinds > 0 ? L"てにいれた ばしょ：つりずかんを " + std::to_wstring(d.fishKinds) + L"しゅるい うめた" :
+			L"てにいれた ばしょ：" + MonsterTable::Get(d.bossId).name + L"を たおした";
 		Font::DrawFit(610.0f, 540.0f, from, GetColor(170, 160, 200), FontSize::Small, edge, 580.0f);
 	}
 	else
 	{
 		Font::DrawCenter(900.0f, 300.0f, L"まだ てにいれて いない", GetColor(150, 140, 170), FontSize::Small, edge);
-		Font::DrawCenter(900.0f, 345.0f, L"どこかの ぬしが もっている らしい…", GetColor(130, 120, 160), FontSize::Small, edge);
+		const std::wstring hint = d.fishKinds > 0 ? L"つりずかんを " + std::to_wstring(d.fishKinds) + L"しゅるい うめると もらえる（いま " + std::to_wstring(KeyItem::FishKinds(s)) + L"しゅるい）" :
+			std::wstring(L"どこかの ぬしが もっている らしい…");
+		Font::DrawCenterFit(900.0f, 345.0f, hint, GetColor(130, 120, 160), FontSize::Small, edge, 600.0f);
 	}
 
 	ButtonGuide::DrawCenter(640.0f, 650.0f, L"{UD}：えらぶ　{B}：とじる", GetColor(170, 160, 200), FontSize::Small, edge);

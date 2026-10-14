@@ -16,6 +16,16 @@ struct ZukanEntry
 };
 
 /// <summary>
+/// つりずかんの記録
+/// </summary>
+struct FishRecord
+{
+	int count = 0;	//つった かず(0は まだ)
+	int best = 0;	//いちばん おおきい cm
+	std::vector<int> stock;	//もっている さかなの おおきさ(たきびで りょうりに つかう)
+};
+
+/// <summary>
 /// 冒険中の仲間
 /// </summary>
 struct RunAlly
@@ -63,6 +73,10 @@ struct RunData
 
 	int rank = 0;		//キラプルンの すみかの むずかしさ
 	int tickets = 0;	//この冒険で ひろった しゅぎょうの きっぷ
+
+	//たべた りょうり(この冒険の あいだ きく。-1は なし)
+	int mealFish = -1;
+	int mealSize = 0;
 };
 
 /// <summary>
@@ -119,6 +133,10 @@ struct SaveSlot
 	std::vector<PartyMember> lastParty;	//まえに つれていった なかま
 	int tickets = 0;	//しゅぎょうの きっぷ(キラプルンの すみかに はいるとき つかう)
 
+	//たきびで つくった りょうり(つぎの あたらしい冒険で たべる。-1は なし)
+	int mealFish = -1;
+	int mealSize = 0;
+
 	/// <summary>
 	/// 解放ずみで、まだ見ていない新要素か
 	/// </summary>
@@ -132,6 +150,7 @@ struct SaveSlot
 
 	std::vector<ZukanEntry> zukan;
 	std::vector<ZukanEntry> zukanShiny;
+	std::vector<FishRecord> fish;	//つりずかん(FishTable の じゅん)
 
 	std::vector<int> materials;
 	std::vector<int> shinyMaterials;
@@ -158,7 +177,7 @@ struct SaveSlot
 	RunData run;
 
 	/// <summary>
-	/// モンスター数に合わせて配列をそろえる
+	/// モンスター数(と さかなの数)に合わせて配列をそろえる
 	/// </summary>
 	void Fit(int monsterNum);
 
@@ -194,6 +213,7 @@ namespace KeyItem
 		std::vector<SkillValue> skills;	//ゆうしゃに 効く
 		int allyHpRate;			//なかまの さいだいHP +%
 		int allyAtkRate;		//なかまの こうげき +%
+		int fishKinds = 0;		//つりずかんを この しゅるい うめると もらえる(0は ぬしの ほうび)
 	};
 
 	int Count();
@@ -215,6 +235,16 @@ namespace KeyItem
 
 	int AllyHpRate(const SaveSlot& s);
 	int AllyAtkRate(const SaveSlot& s);
+
+	/// <summary>
+	/// つった さかなの しゅるい
+	/// </summary>
+	int FishKinds(const SaveSlot& s);
+
+	/// <summary>
+	/// つりずかんの ほうびを わたす(あたらしく もらった ばんごうを かえす)
+	/// </summary>
+	std::vector<int> GiveFishRewards(SaveSlot& s);
 }
 
 /// <summary>

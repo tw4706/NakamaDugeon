@@ -5,12 +5,14 @@
 #include "Stage.h"
 #include "Charm.h"
 #include "EquipData.h"
+#include "FishData.h"
 #include "Input.h"
 #include "Sound.h"
 #include "Effects.h"
 #include "DrawUtil.h"
 #include "Font.h"
 #include "ButtonGuide.h"
+#include "Sprite.h"
 #include<DxLib.h>
 #include<cmath>
 #include<algorithm>
@@ -158,6 +160,11 @@ namespace
 	constexpr float kWallTopContrast = 1.5f;	//壁の 上面は 床より すこし 暗く
 	constexpr int kFogAlpha = 110;				//視界の そとを 暗くする こさ
 
+	//ドット絵の タイル(Kenney Tiny Dungeon の ばんごう)
+	constexpr int kWallTile = 40;					//いしの かべ
+	constexpr int kFloorTiles[3] = { 48, 49, 51 };	//すなの ゆか(ふつう・小石・小石)
+	constexpr int kStairsTile = 36;					//かいだん
+
 	float Linear(int c)
 	{
 		const float v = c / 255.0f;
@@ -286,6 +293,11 @@ void DungeonScene::Init()
 		}
 		AddMessage(L"こんかいの せいかく：" + std::wstring(kPersonalities[personality_].name) + L"（" + kPersonalities[personality_].desc + L"）", GetColor(200, 220, 255));
 		if (AllyCount() > 0) AddMessage(L"なかま " + std::to_wstring(AllyCount()) + L"たいが いっしょに きた！", GetColor(150, 230, 255));
+		const RunData& r = Save().run;
+		if (r.mealFish >= 0)
+		{
+			AddMessage(std::wstring(FishTable::All()[r.mealFish].dish) + L"を たべて げんき いっぱい！（" + FishTable::MealText(r.mealFish, r.mealSize) + L"）", GetColor(255, 210, 150));
+		}
 	}
 	else
 	{
@@ -302,6 +314,12 @@ void DungeonScene::NewRun()
 	s.run.floor = 1;
 	s.run.rank = rank_;
 	s.Fit(static_cast<int>(MonsterTable::All().size()));
+
+	//たきびで つくった りょうりを たべていく(この冒険の あいだ きく)
+	s.run.mealFish = s.mealFish;
+	s.run.mealSize = s.mealSize;
+	s.mealFish = -1;
+	s.mealSize = 0;
 
 	//キラプルンの すみかは きっぷを つかって はいる
 	if (IsTraining()) s.tickets = std::max(0, s.tickets - Stage::Rank(rank_).ticketCost);
@@ -507,6 +525,8 @@ void DungeonScene::RecomputeBonus()
 	const Personality& p = kPersonalities[personality_];
 	bonus_.Add(p.plus);
 	bonus_.Add(p.minus);
+	const RunData& r = Save().run;
+	if (r.mealFish >= 0) bonus_.Add(FishTable::MealSkill(r.mealFish, r.mealSize));
 	ApplyHeroStats();
 }
 
@@ -2465,6 +2485,12 @@ void DungeonScene::DrawMap()
 	const int x1 = std::min(DungeonMap::kWidth - 1, x0 + static_cast<int>(Game::kScreenWidth / kTile) + 2);
 	const int y1 = std::min(DungeonMap::kHeight - 1, y0 + static_cast<int>(Game::kScreenHeight / kTile) + 2);
 
+	//ドット絵の タイル(エリアの いろに ぬりかえる)
+	const int wallTile = Sprite::Tinted(SpriteSheet::Dungeon, kWallTile, th.wall, 0.8f);
+	int floorTiles[3] = {};
+	for (int k = 0; k < 3; k++) floorTiles[k] = Sprite::Tinted(SpriteSheet::Dungeon, kFloorTiles[k], th.floorA, 0.85f);
+	const int stairsTile = Sprite::Tile(SpriteSheet::Dungeon, kStairsTile);
+
 	for (int y = y0; y <= y1; y++)
 	{
 		for (int x = x0; x <= x1; x++)
@@ -2483,24 +2509,17 @@ void DungeonScene::DrawMap()
 					if (map_.IsWalkable(c + d)) { isEdge = true; break; }
 				}
 				if (!isEdge) continue;
-				DrawBoxAA(sx, sy, sx + kTile, sy + kTile, Game::ToColor(th.wall), TRUE);
-				DrawBoxAA(sx, sy, sx + kTile, sy + kTile * 0.35f, Game::ToColor(th.wallTop), TRUE);
-				DrawLineAA(sx, sy + kTile * 0.35f, sx + kTile, sy + kTile * 0.35f, Game::ToColor(DrawUtil::Scale(th.wall, 0.7f)), 2.0f);
+				Sprite::DrawRect(wallTile, sx, sy, kTile, kTile);
 			}
 			else
 			{
-				const Game::Rgb fc = (x + y) % 2 == 0 ? th.floorA : th.floorB;
-				DrawBoxAA(sx, sy, sx + kTile, sy + kTile, Game::ToColor(fc), TRUE);
-				DrawBoxAA(sx + 1.0f, sy + 1.0f, sx + kTile - 1.0f, sy + kTile - 1.0f, Game::ToColor(DrawUtil::Scale(fc, 0.9f)), FALSE);
+				//ところどころ 小石の ある床
+				const int pick = (x * 7 + y * 13) % 11;
+				Sprite::DrawRect(floorTiles[pick == 0 ? 1 : (pick == 1 ? 2 : 0)], sx, sy, kTile, kTile);
 
 				if (tile == Tile::Stairs)
 				{
-					DrawBoxAA(sx + 6.0f, sy + 6.0f, sx + kTile - 6.0f, sy + kTile - 6.0f, GetColor(30, 25, 30), TRUE);
-					for (int k = 0; k < 4; k++)
-					{
-						const float yy = sy + 10.0f + k * 8.0f;
-						DrawBoxAA(sx + 8.0f + k * 4.0f, yy, sx + kTile - 8.0f, yy + 5.0f, GetColor(170 - k * 30, 160 - k * 30, 150 - k * 30), TRUE);
-					}
+					Sprite::DrawRect(stairsTile, sx, sy, kTile, kTile);
 					if (map_.IsVisible(c))
 					{
 						const float a = 0.5f + 0.5f * std::sin(time_ * 4.0f);
@@ -2866,7 +2885,8 @@ void DungeonScene::DrawStatus()
 	{
 		L"レベル " + std::to_wstring(hero.level) + L"　けいけんち " + std::to_wstring(hero.exp) + L"/" + std::to_wstring(hero.NextExp()),
 		L"HP " + std::to_wstring(hero.hp) + L"/" + std::to_wstring(hero.maxHp) + L"　こうげき " + std::to_wstring(hero.atk) + L"　ぼうぎょ " + std::to_wstring(hero.def),
-		L"かいしん " + std::to_wstring(kBaseCrit + baseCrit_ + bonus_.Get(SkillKind::Crit)) + L"%",
+		L"かいしん " + std::to_wstring(kBaseCrit + baseCrit_ + bonus_.Get(SkillKind::Crit)) + L"%" +
+			(Save().run.mealFish >= 0 ? L"　たべた りょうり：" + std::wstring(FishTable::All()[Save().run.mealFish].dish) + L"（" + FishTable::MealText(Save().run.mealFish, Save().run.mealSize) + L"）" : std::wstring()),
 		L"せいかく：" + std::wstring(kPersonalities[personality_].name) + L"（" + kPersonalities[personality_].desc + L"）",
 	};
 	for (int i = 0; i < 4; i++) Font::DrawFit(250.0f, 170.0f + i * 36.0f, lines[i], white, FontSize::Small, edge, 780.0f);

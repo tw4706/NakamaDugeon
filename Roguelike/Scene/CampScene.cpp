@@ -3,6 +3,9 @@
 #include "TitleScene.h"
 #include "DungeonScene.h"
 #include "ZukanScene.h"
+#include "FishZukanScene.h"
+#include "FishingScene.h"
+#include "FishData.h"
 #include "SmithScene.h"
 #include "SettingsScene.h"
 #include "SaveData.h"
@@ -16,6 +19,7 @@
 #include "Font.h"
 #include "ButtonGuide.h"
 #include "UpdateLog.h"
+#include "Sprite.h"
 #include<DxLib.h>
 #include<cmath>
 #include<algorithm>
@@ -140,15 +144,17 @@ namespace
 	};
 }
 
-CampScene::CampScene(SceneManager& manager) :
-	Scene(manager)
+CampScene::CampScene(SceneManager& manager, const Cell& start) :
+	Scene(manager),
+	startCell_(start)
 {
 }
 
 void CampScene::Init()
 {
 	BuildMap();
-	heroCell_ = { 13, 5 };
+	heroCell_ = IsBlocked(startCell_) ? Cell{ 13, 5 } : startCell_;
+	if (heroCell_.x < kPond.x + kPond.w + 1 && heroCell_.y >= kPond.y) heroFacing_ = -1.0f;	//いけを みる
 	heroPos_ = CellToPos(heroCell_);
 	Sound::GetInstance().PlayBGM(BGM::Village);
 
@@ -244,6 +250,14 @@ void CampScene::BuildMap()
 	spots_[kFire.y - 1][kFire.x] = Spot::Fire;
 	spots_[kFire.y + 1][kFire.x] = Spot::Fire;
 	for (int dx = -1; dx <= 1; dx++) spots_[kBoard.y + 1][kBoard.x + dx] = Spot::Notice;
+
+	//いけの まわり(うえ・した・みぎ)
+	for (int x = kPond.x; x < kPond.x + kPond.w; x++)
+	{
+		spots_[kPond.y - 1][x] = Spot::Pond;
+		spots_[kPond.y + kPond.h][x] = Spot::Pond;
+	}
+	for (int y = kPond.y; y < kPond.y + kPond.h; y++) spots_[y][kPond.x + kPond.w] = Spot::Pond;
 }
 
 bool CampScene::IsBlocked(const Cell& c) const
@@ -358,6 +372,9 @@ void CampScene::Update()
 	case Mode::FloorSelect: UpdateFloorSelect(); break;
 	case Mode::RankSelect: UpdateRankSelect(); break;
 	case Mode::PartySelect: UpdatePartySelect(); break;
+	case Mode::LibraryMenu: UpdateLibraryMenu(); break;
+	case Mode::FireMenu: UpdateFireMenu(); break;
+	case Mode::Cook: UpdateCook(); break;
 	case Mode::KeyItems:
 		if (keyItemMenu_.Update()) mode_ = Mode::Pause;
 		break;
@@ -507,9 +524,14 @@ void CampScene::UpdateWalk()
 			Sound::GetInstance().PlaySE(SE::Decide);
 			return;
 		case Spot::Library:
+			mode_ = Mode::LibraryMenu;
+			libraryCursor_ = 0;
+			Sound::GetInstance().PlaySE(SE::Decide);
+			return;
+		case Spot::Pond:
 			isLeaving_ = true;
 			Sound::GetInstance().PlaySE(SE::Decide);
-			sceneManager_.ChangeSceneWithFade(std::make_shared<ZukanScene>(sceneManager_));
+			sceneManager_.ChangeSceneWithFade(std::make_shared<FishingScene>(sceneManager_));
 			return;
 		case Spot::Smith:
 			isLeaving_ = true;
@@ -517,9 +539,9 @@ void CampScene::UpdateWalk()
 			sceneManager_.ChangeSceneWithFade(std::make_shared<SmithScene>(sceneManager_));
 			return;
 		case Spot::Fire:
-			isLeaving_ = true;
+			mode_ = Mode::FireMenu;
+			fireCursor_ = 0;
 			Sound::GetInstance().PlaySE(SE::Decide);
-			sceneManager_.ChangeSceneWithFade(std::make_shared<SettingsScene>(sceneManager_, SettingsScene::Return::Camp));
 			return;
 		case Spot::Notice:
 			OpenNotice();
@@ -1101,9 +1123,10 @@ void CampScene::Draw()
 		switch (spot)
 		{
 		case Spot::Dungeon: text = L"{A}：ダンジョンへ"; break;
-		case Spot::Library: text = L"{A}：モンスターずかん"; break;
+		case Spot::Library: text = L"{A}：しょこ"; break;
+		case Spot::Pond: text = L"{A}：つりを する"; break;
 		case Spot::Smith: text = L"{A}：かじや"; break;
-		case Spot::Fire: text = L"{A}：せってい"; break;
+		case Spot::Fire: text = L"{A}：たきび（りょうり・せってい）"; break;
 		case Spot::Notice: text = L"{A}：おしらせ"; break;
 		default: break;
 		}
@@ -1132,21 +1155,243 @@ void CampScene::Draw()
 	if (mode_ == Mode::Notice) DrawNotice();
 	if (mode_ == Mode::KeyItems) keyItemMenu_.Draw();
 	if (mode_ == Mode::PartySelect) DrawPartySelect();
+	if (mode_ == Mode::LibraryMenu) DrawLibraryMenu();
+	if (mode_ == Mode::FireMenu) DrawFireMenu();
+	if (mode_ == Mode::Cook) DrawCook();
 	if (mode_ == Mode::Unlock) DrawUnlock();
+}
+
+//==============================//
+// たきびの りょうり
+//==============================//
+
+namespace
+{
+	constexpr int kCookRows = 6;	//いちどに 見える さかな
+	constexpr float kCookRowH = 64.0f;
+
+	/// <summary>
+	/// もっている なかで いちばん おおきい さかな(-1は もっていない)
+	/// </summary>
+	int BiggestStock(const FishRecord& rec)
+	{
+		int best = -1;
+		for (size_t i = 0; i < rec.stock.size(); i++)
+		{
+			if (best < 0 || rec.stock[i] > rec.stock[best]) best = static_cast<int>(i);
+		}
+		return best;
+	}
+}
+
+std::wstring CampScene::PendingMealText() const
+{
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+	if (s.mealFish < 0) return L"";
+	return std::wstring(FishTable::All()[s.mealFish].dish) + L"（" + FishTable::MealText(s.mealFish, s.mealSize) + L"）";
+}
+
+void CampScene::UpdateFireMenu()
+{
+	Input& input = Input::GetInstance();
+	Sound& sound = Sound::GetInstance();
+	constexpr int kItemNum = 3;
+	if (input.IsAnyTriggered(Button::Up)) { fireCursor_ = (fireCursor_ + kItemNum - 1) % kItemNum; sound.PlaySE(SE::Cursor); }
+	if (input.IsAnyTriggered(Button::Down)) { fireCursor_ = (fireCursor_ + 1) % kItemNum; sound.PlaySE(SE::Cursor); }
+
+	if (input.IsAnyTriggered(Button::Cancel) || (input.IsAnyTriggered(Button::Decide) && fireCursor_ == 2))
+	{
+		mode_ = Mode::Walk;
+		sound.PlaySE(SE::Cancel);
+		return;
+	}
+	if (!input.IsAnyTriggered(Button::Decide)) return;
+
+	if (fireCursor_ == 0)
+	{
+		OpenCook();
+		return;
+	}
+	isLeaving_ = true;
+	sound.PlaySE(SE::Decide);
+	sceneManager_.ChangeSceneWithFade(std::make_shared<SettingsScene>(sceneManager_, SettingsScene::Return::Camp));
+}
+
+void CampScene::DrawFireMenu()
+{
+	const unsigned int edge = GetColor(20, 15, 30);
+	DrawUtil::Window(400.0f, 190.0f, 880.0f, 520.0f);
+	Font::DrawCenter(640.0f, 230.0f, L"たきび", GetColor(255, 230, 140), FontSize::Medium, edge);
+
+	const wchar_t* items[3] = { L"りょうりする", L"せってい", L"やめる" };
+	for (int i = 0; i < 3; i++)
+	{
+		const float y = 300.0f + i * 56.0f;
+		if (i == fireCursor_) DrawUtil::CursorBeside(640.0f, y, items[i], FontSize::Small, time_);
+		Font::DrawCenter(640.0f, y, items[i], i == fireCursor_ ? GetColor(255, 240, 150) : GetColor(190, 180, 210), FontSize::Small, edge);
+	}
+
+	const std::wstring meal = PendingMealText();
+	Font::DrawCenterFit(640.0f, 450.0f, meal.empty() ? std::wstring(L"つった さかなを りょうりすると つぎの ぼうけんで たべられる") : L"つぎの ぼうけんで たべる：" + meal,
+		meal.empty() ? GetColor(170, 160, 190) : GetColor(255, 210, 150), FontSize::Small, edge, 450.0f);
+	ButtonGuide::DrawCenter(640.0f, 490.0f, L"{A}：けってい　{B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
+}
+
+void CampScene::OpenCook()
+{
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+	cookList_.clear();
+	for (size_t i = 0; i < s.fish.size() && i < FishTable::All().size(); i++)
+	{
+		if (!s.fish[i].stock.empty()) cookList_.push_back(static_cast<int>(i));
+	}
+	if (cookList_.empty())
+	{
+		Sound::GetInstance().PlaySE(SE::Buzzer);
+		mode_ = Mode::Walk;
+		Effects::GetInstance().Popup(heroPos_ + Vec2(0.0f, -80.0f), L"さかなを もっていない（いけで つろう）", { 255, 220, 200 }, FontSize::Small);
+		return;
+	}
+	cookCursor_ = 0;
+	cookTop_ = 0;
+	mode_ = Mode::Cook;
+	Sound::GetInstance().PlaySE(SE::Decide);
+}
+
+void CampScene::UpdateCook()
+{
+	Input& input = Input::GetInstance();
+	Sound& sound = Sound::GetInstance();
+	const int num = static_cast<int>(cookList_.size());
+	if (input.IsAnyTriggered(Button::Up) && num > 1) { cookCursor_ = (cookCursor_ + num - 1) % num; sound.PlaySE(SE::Cursor); }
+	if (input.IsAnyTriggered(Button::Down) && num > 1) { cookCursor_ = (cookCursor_ + 1) % num; sound.PlaySE(SE::Cursor); }
+	cookTop_ = std::clamp(cookTop_, std::max(0, cookCursor_ - kCookRows + 1), cookCursor_);
+
+	if (input.IsAnyTriggered(Button::Cancel))
+	{
+		mode_ = Mode::FireMenu;
+		sound.PlaySE(SE::Cancel);
+		return;
+	}
+	if (!input.IsAnyTriggered(Button::Decide)) return;
+
+	SaveSlot& s = SaveManager::GetInstance().Current();
+	const int fish = cookList_[cookCursor_];
+	FishRecord& rec = s.fish[fish];
+	const int pick = BiggestStock(rec);
+	if (pick < 0) return;
+
+	//まえに つくった りょうりは さかなに もどす(もてる ぶんだけ)
+	if (s.mealFish >= 0 && s.mealFish < static_cast<int>(s.fish.size()))
+	{
+		std::vector<int>& back = s.fish[s.mealFish].stock;
+		if (static_cast<int>(back.size()) < FishTable::kMaxStock) back.push_back(s.mealSize);
+	}
+	s.mealFish = fish;
+	s.mealSize = rec.stock[pick];
+	rec.stock.erase(rec.stock.begin() + pick);
+	SaveManager::GetInstance().Save();
+
+	sound.PlaySE(SE::Fanfare);
+	const Vec2 fp = CellToPos(kFire);
+	Effects::GetInstance().Burst(fp, 18, { 255, 190, 90 }, 60.0f, 180.0f, 5.0f, 0.8f, ParticleShape::Star, -60.0f, true);
+	Effects::GetInstance().Popup(fp + Vec2(0.0f, -70.0f), std::wstring(FishTable::All()[fish].dish) + L"が できた！", { 255, 220, 140 }, FontSize::Small);
+	mode_ = Mode::Walk;
+}
+
+void CampScene::DrawCook()
+{
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+	const unsigned int edge = GetColor(20, 15, 30);
+	SetDrawBlendMode(DX_BLENDMODE_ALPHA, 120);
+	DrawBox(0, 0, Game::kScreenWidth, Game::kScreenHeight, GetColor(0, 0, 0), TRUE);
+	SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+
+	DrawUtil::Window(250.0f, 70.0f, 1030.0f, 650.0f);
+	Font::DrawCenter(640.0f, 110.0f, L"なにを りょうりする？", GetColor(255, 230, 140), FontSize::Medium, edge);
+	Font::DrawCenterFit(640.0f, 152.0f, L"つぎの あたらしい ぼうけんの あいだ きく（1かいに 1しな・おおきい さかなほど すこし つよい）",
+		GetColor(190, 180, 210), FontSize::Small, edge, 740.0f);
+
+	const int num = static_cast<int>(cookList_.size());
+	const int end = std::min(num, cookTop_ + kCookRows);
+	for (int i = cookTop_; i < end; i++)
+	{
+		const int fish = cookList_[i];
+		const FishData& d = FishTable::All()[fish];
+		const FishRecord& rec = s.fish[fish];
+		const int pick = BiggestStock(rec);
+		const int size = pick >= 0 ? rec.stock[pick] : d.minSize;
+		const float y = 200.0f + (i - cookTop_) * kCookRowH;
+		const bool isSel = i == cookCursor_;
+		if (isSel)
+		{
+			SetDrawBlendMode(DX_BLENDMODE_ALPHA, 70);
+			DrawBoxAA(290.0f, y, 990.0f, y + kCookRowH - 6.0f, GetColor(255, 220, 120), TRUE);
+			SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+			DrawUtil::Cursor(272.0f, y + kCookRowH * 0.5f - 3.0f, time_);
+		}
+		FishDraw::Fish({ 340.0f, y + kCookRowH * 0.5f - 3.0f }, 64.0f, d, isSel ? time_ : 0.0f, 1.0f, false);
+		Font::DrawFit(392.0f, y + 2.0f, std::wstring(d.dish) + L"　" + FishTable::MealText(fish, size), isSel ? GetColor(255, 240, 150) : GetColor(235, 230, 250), FontSize::Small, edge, 580.0f);
+		Font::DrawFit(392.0f, y + 30.0f, std::wstring(d.name) + L" " + std::to_wstring(size) + L"cm を つかう　（もちもの " + std::to_wstring(rec.stock.size()) + L"ひき）",
+			GetColor(170, 165, 195), FontSize::Small, edge, 580.0f);
+	}
+
+	const float bob = std::sin(time_ * 6.0f) * 3.0f;
+	if (cookTop_ > 0) DrawTriangleAA(1000.0f, 196.0f + bob, 990.0f, 212.0f + bob, 1010.0f, 212.0f + bob, GetColor(255, 230, 120), TRUE);
+	if (end < num) DrawTriangleAA(990.0f, 574.0f - bob, 1010.0f, 574.0f - bob, 1000.0f, 590.0f - bob, GetColor(255, 230, 120), TRUE);
+
+	const std::wstring meal = PendingMealText();
+	if (!meal.empty()) Font::DrawCenterFit(640.0f, 592.0f, L"いまの りょうり：" + meal + L"（つくりなおすと さかなに もどる）", GetColor(255, 210, 150), FontSize::Small, edge, 740.0f);
+	ButtonGuide::DrawCenter(640.0f, 624.0f, L"{UD}：えらぶ　{A}：りょうりする　{B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
+}
+
+void CampScene::UpdateLibraryMenu()
+{
+	Input& input = Input::GetInstance();
+	Sound& sound = Sound::GetInstance();
+	constexpr int kItemNum = 3;
+	if (input.IsAnyTriggered(Button::Up)) { libraryCursor_ = (libraryCursor_ + kItemNum - 1) % kItemNum; sound.PlaySE(SE::Cursor); }
+	if (input.IsAnyTriggered(Button::Down)) { libraryCursor_ = (libraryCursor_ + 1) % kItemNum; sound.PlaySE(SE::Cursor); }
+
+	if (input.IsAnyTriggered(Button::Cancel) || (input.IsAnyTriggered(Button::Decide) && libraryCursor_ == 2))
+	{
+		mode_ = Mode::Walk;
+		sound.PlaySE(SE::Cancel);
+		return;
+	}
+	if (!input.IsAnyTriggered(Button::Decide)) return;
+
+	isLeaving_ = true;
+	sound.PlaySE(SE::Decide);
+	if (libraryCursor_ == 0) sceneManager_.ChangeSceneWithFade(std::make_shared<ZukanScene>(sceneManager_));
+	else sceneManager_.ChangeSceneWithFade(std::make_shared<FishZukanScene>(sceneManager_));
+}
+
+void CampScene::DrawLibraryMenu()
+{
+	const unsigned int edge = GetColor(20, 15, 30);
+	const SaveSlot& s = SaveManager::GetInstance().Current();
+	DrawUtil::Window(440.0f, 210.0f, 840.0f, 500.0f);
+	Font::DrawCenter(640.0f, 250.0f, L"しょこ", GetColor(255, 230, 140), FontSize::Medium, edge);
+
+	const wchar_t* items[3] = { L"モンスターずかん", L"つりずかん", L"やめる" };
+	for (int i = 0; i < 3; i++)
+	{
+		const float y = 320.0f + i * 56.0f;
+		if (i == libraryCursor_) DrawUtil::CursorBeside(640.0f, y, items[i], FontSize::Small, time_);
+		Font::DrawCenter(640.0f, y, items[i], i == libraryCursor_ ? GetColor(255, 240, 150) : GetColor(190, 180, 210), FontSize::Small, edge);
+	}
+	//まだ見ていない色違いのページ
+	if (s.IsNew(NewsBit::kShinyZukan)) DrawUtil::NewMark(640.0f + Font::Width(items[0], FontSize::Small) * 0.5f + 20.0f, 320.0f, time_, 13.0f);
+	ButtonGuide::DrawCenter(640.0f, 470.0f, L"{A}：けってい　{B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
 }
 
 void CampScene::DrawNoticeBoard()
 {
 	//けいじばん
 	const Vec2 c = CellToPos(kBoard);
-	const unsigned int wood = GetColor(140, 95, 55);
-	const unsigned int dark = GetColor(90, 60, 35);
-	DrawBoxAA(c.x - 18.0f, c.y - 2.0f, c.x - 12.0f, c.y + 24.0f, dark, TRUE);
-	DrawBoxAA(c.x + 12.0f, c.y - 2.0f, c.x + 18.0f, c.y + 24.0f, dark, TRUE);
-	DrawRoundRectAA(c.x - 26.0f, c.y - 22.0f, c.x + 26.0f, c.y + 8.0f, 4.0f, 4.0f, 6, wood, TRUE);
-	DrawRoundRectAA(c.x - 26.0f, c.y - 22.0f, c.x + 26.0f, c.y + 8.0f, 4.0f, 4.0f, 6, dark, FALSE, 2.0f);
-	DrawBoxAA(c.x - 16.0f, c.y - 17.0f, c.x - 1.0f, c.y + 3.0f, GetColor(245, 240, 225), TRUE);
-	DrawBoxAA(c.x + 3.0f, c.y - 15.0f, c.x + 18.0f, c.y + 1.0f, GetColor(235, 225, 200), TRUE);
+	constexpr int kBoardTile = 83;	//かんばん(Kenney Tiny Town)
+	Sprite::DrawRect(Sprite::Tile(SpriteSheet::Town, kBoardTile), c.x - kTile * 0.5f, c.y - kTile * 0.5f, kTile, kTile);
 
 	//吹き出し(未読があるときは目立たせる)
 	const bool isUnread = HasUnreadNotice();
@@ -1272,6 +1517,69 @@ void CampScene::DrawNotice()
 	ButtonGuide::DrawCenter(640.0f, 610.0f, L"{UD}：スクロール　{LR}：ほかの バージョン　{A} / {B}：もどる", GetColor(160, 150, 180), FontSize::Small, edge);
 }
 
+namespace
+{
+	//------------------------------//
+	// むらの ドット絵(Kenney Tiny Town の ばんごう)
+	//------------------------------//
+	constexpr int kGrassTiles[3] = { 0, 1, 2 };		//くさ・くさむら・はな
+	constexpr int kPathTile = 43;					//いしだたみ
+	constexpr int kTreeTiles[3] = { 16, 5, 16 };	//まるい木・しげみ(とがった木は くさに とけこむので つかわない)
+	constexpr int kLibrarianTile = 100;				//しょこばん(Tiny Dungeon)
+	constexpr int kSmithTile = 86;					//かじや(Tiny Dungeon)
+	constexpr int kAnvilTile = 74;
+	constexpr int kHammerTile = 117;
+
+	/// <summary>
+	/// いえの タイル(やね・やねの した・やねの まんなか・かべ・まど・とびら)。はしは 左・まんなか・右
+	/// </summary>
+	struct HouseStyle
+	{
+		int roof[3];
+		int roofLow[3];
+		int gable;
+		int wall[3];
+		int window;
+		int door;
+	};
+	constexpr HouseStyle kStoneHouse = { { 48, 49, 50 }, { 60, 61, 62 }, 63, { 76, 77, 79 }, 88, 90 };
+	constexpr HouseStyle kWoodHouse = { { 52, 53, 54 }, { 64, 65, 66 }, 67, { 72, 73, 75 }, 84, 86 };
+
+	void DrawTownTile(int index, float x, float y)
+	{
+		Sprite::DrawRect(Sprite::Tile(SpriteSheet::Town, index), x, y, kTile, kTile);
+	}
+
+	/// <summary>
+	/// いえを タイルで くみたてる(上 2だんが やね、のこりが かべ。いちばん下の doorCol に とびら)
+	/// </summary>
+	void DrawHouse(const HouseStyle& st, float x0, float y0, int w, int h, int doorCol)
+	{
+		const int roofRows = h >= 3 ? 2 : 1;
+		for (int r = 0; r < h; r++)
+		{
+			for (int c = 0; c < w; c++)
+			{
+				const int edge = c == 0 ? 0 : (c == w - 1 ? 2 : 1);
+				int tile = st.wall[edge];
+				if (r == 0) tile = st.roof[edge];
+				else if (r < roofRows) tile = c == w / 2 ? st.gable : st.roofLow[edge];
+				else if (r == h - 1 && c == doorCol) tile = st.door;
+				else if (r == h - 2 && edge == 1 && c % 2 == 1) tile = st.window;
+				DrawTownTile(tile, x0 + c * kTile, y0 + r * kTile);
+			}
+		}
+	}
+
+	void DrawPerson(int tile, const Vec2& feet, float scale, float bob, bool isFlip)
+	{
+		SetDrawBlendMode(DX_BLENDMODE_ALPHA, 90);
+		DrawOvalAA(feet.x, feet.y, 15.0f, 4.0f, 12, GetColor(0, 0, 0), TRUE);
+		SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+		Sprite::DrawFeet(Sprite::Tile(SpriteSheet::Dungeon, tile), feet - Vec2(0.0f, bob), scale, scale, isFlip);
+	}
+}
+
 void CampScene::DrawGround()
 {
 	for (int y = 0; y < kRows; y++)
@@ -1280,69 +1588,61 @@ void CampScene::DrawGround()
 		{
 			const float sx = kOriginX + x * kTile;
 			const float sy = y * kTile;
-			unsigned int col = ((x * 7 + y * 3) % 5 == 0) ? GetColor(98, 168, 88) : GetColor(108, 180, 96);
-			if (path_[y][x]) col = ((x + y) % 2 == 0) ? GetColor(196, 168, 120) : GetColor(186, 158, 112);
-			DrawBoxAA(sx, sy, sx + kTile, sy + kTile, col, TRUE);
-
-			//草の模様
-			if (!path_[y][x] && (x * 13 + y * 7) % 4 == 0)
-			{
-				DrawLineAA(sx + 14.0f, sy + 30.0f, sx + 18.0f, sy + 22.0f, GetColor(70, 140, 70), 2.0f);
-				DrawLineAA(sx + 20.0f, sy + 30.0f, sx + 21.0f, sy + 21.0f, GetColor(70, 140, 70), 2.0f);
-			}
+			int tile = kGrassTiles[0];
+			if (path_[y][x]) tile = kPathTile;
+			else if ((x * 7 + y * 3) % 5 == 0) tile = kGrassTiles[1];
+			else if ((x * 13 + y * 7) % 11 == 0) tile = kGrassTiles[2];
+			DrawTownTile(tile, sx, sy);
 		}
 	}
 
 	//外周の木
-	auto tree = [](float cx, float cy)
+	auto tree = [](int x, int y)
 	{
-		DrawOvalAA(cx, cy + 16.0f, 16.0f, 6.0f, 12, GetColor(50, 90, 50), TRUE);
-		DrawBoxAA(cx - 5.0f, cy, cx + 5.0f, cy + 16.0f, GetColor(110, 75, 45), TRUE);
-		DrawCircleAA(cx, cy - 6.0f, 20.0f, 20, GetColor(50, 120, 60), TRUE);
-		DrawCircleAA(cx - 6.0f, cy - 12.0f, 9.0f, 12, GetColor(80, 160, 80), TRUE);
+		DrawTownTile(kTreeTiles[(x * 3 + y * 5) % 3], kOriginX + x * kTile, y * kTile);
 	};
 	for (int x = 0; x < kCols; x++)
 	{
-		if (x < kCave.x || x >= kCave.x + kCave.w) tree(kOriginX + (x + 0.5f) * kTile, 0.5f * kTile);
-		tree(kOriginX + (x + 0.5f) * kTile, (kRows - 0.5f) * kTile);
+		if (x < kCave.x || x >= kCave.x + kCave.w) tree(x, 0);
+		tree(x, kRows - 1);
 	}
 	for (int y = 1; y < kRows - 1; y++)
 	{
-		tree(kOriginX + 0.5f * kTile, (y + 0.5f) * kTile);
-		tree(kOriginX + (kCols - 0.5f) * kTile, (y + 0.5f) * kTile);
+		tree(0, y);
+		tree(kCols - 1, y);
 	}
-	for (const Cell& t : kTrees) tree(kOriginX + (t.x + 0.5f) * kTile, (t.y + 0.5f) * kTile);
+	for (const Cell& t : kTrees) tree(t.x, t.y);
 
 	//池
 	const float px = kOriginX + (kPond.x + kPond.w * 0.5f) * kTile;
 	const float py = (kPond.y + kPond.h * 0.5f) * kTile;
-	DrawOvalAA(px, py, kPond.w * kTile * 0.5f, kPond.h * kTile * 0.45f, 40, GetColor(70, 140, 210), TRUE);
-	DrawOvalAA(px, py, kPond.w * kTile * 0.5f, kPond.h * kTile * 0.45f, 40, GetColor(200, 230, 255), FALSE, 3.0f);
+	DrawOvalAA(px, py + 4.0f, kPond.w * kTile * 0.5f + 4.0f, kPond.h * kTile * 0.45f + 4.0f, 40, GetColor(62, 39, 49), TRUE);
+	DrawOvalAA(px, py, kPond.w * kTile * 0.5f, kPond.h * kTile * 0.45f, 40, GetColor(76, 150, 220), TRUE);
+	DrawOvalAA(px, py, kPond.w * kTile * 0.5f, kPond.h * kTile * 0.45f, 40, GetColor(170, 220, 250), FALSE, 3.0f);
 	for (int k = 0; k < 3; k++)
 	{
 		const float wx = px - 50.0f + k * 45.0f + std::sin(time_ + k) * 6.0f;
-		DrawLineAA(wx, py - 10.0f + k * 12.0f, wx + 18.0f, py - 10.0f + k * 12.0f, GetColor(170, 210, 250), 2.0f);
+		DrawBoxAA(wx, py - 11.0f + k * 12.0f, wx + 18.0f, py - 8.0f + k * 12.0f, GetColor(190, 230, 255), TRUE);
 	}
 }
 
 void CampScene::DrawBuildings()
 {
-	const int fontS = Font::Get(FontSize::Small);
-	(void)fontS;
-
-	//ダンジョンの入口(ほら穴)
+	//ダンジョンの入口(いしの もん)
 	{
 		const float x1 = kOriginX + kCave.x * kTile;
 		const float x2 = x1 + kCave.w * kTile;
 		const float y2 = (kCave.y + kCave.h) * kTile;
-		DrawBoxAA(x1, 0.0f, x2, y2, GetColor(110, 100, 95), TRUE);
-		for (int k = 0; k < 6; k++)
+		DrawBoxAA(x1 + kTile, kTile, x2 - kTile, y2, GetColor(20, 14, 20), TRUE);
+		const int rows[3][4] = { { 96, 97, 97, 98 }, { 108, 113, 114, 110 }, { 120, -1, -1, 122 } };
+		for (int r = 0; r < 3; r++)
 		{
-			DrawCircleAA(x1 + 15.0f + k * 32.0f, 10.0f + (k % 2) * 14.0f, 22.0f, 16, GetColor(130, 120, 112), TRUE);
+			for (int c = 0; c < 4; c++)
+			{
+				if (rows[r][c] >= 0) DrawTownTile(rows[r][c], x1 + c * kTile, r * kTile);
+			}
 		}
 		const float cx = (x1 + x2) * 0.5f;
-		DrawOvalAA(cx, y2 - 10.0f, 70.0f, 80.0f, 32, GetColor(20, 14, 20), TRUE);
-		DrawBoxAA(cx - 70.0f, y2 - 10.0f, cx + 70.0f, y2, GetColor(20, 14, 20), TRUE);
 		const float glow = 0.5f + 0.5f * std::sin(time_ * 2.0f);
 		SetDrawBlendMode(DX_BLENDMODE_ADD, static_cast<int>(40 + 40 * glow));
 		DrawOvalAA(cx, y2 - 30.0f, 40.0f, 50.0f, 24, GetColor(120, 80, 200), TRUE);
@@ -1353,14 +1653,8 @@ void CampScene::DrawBuildings()
 	DrawArchive();
 	DrawSmithy();
 
-	//テント
-	{
-		const float x1 = kOriginX + kTent.x * kTile;
-		const float x2 = x1 + kTent.w * kTile;
-		const float y2 = (kTent.y + kTent.h) * kTile - 6.0f;
-		DrawTriangleAA(x1, y2, x2, y2, (x1 + x2) * 0.5f, kTent.y * kTile + 6.0f, GetColor(200, 90, 70), TRUE);
-		DrawTriangleAA((x1 + x2) * 0.5f - 20.0f, y2, (x1 + x2) * 0.5f + 20.0f, y2, (x1 + x2) * 0.5f, y2 - 50.0f, GetColor(70, 30, 30), TRUE);
-	}
+	//テント(ちいさな いえ)
+	DrawHouse(kWoodHouse, kOriginX + kTent.x * kTile, kTent.y * kTile, kTent.w, kTent.h, kTent.w / 2);
 
 	//たき火
 	{
@@ -1380,103 +1674,17 @@ void CampScene::DrawBuildings()
 void CampScene::DrawArchive()
 {
 	const float x1 = kOriginX + kLibrary.x * kTile;
-	const float x2 = x1 + kLibrary.w * kTile;
 	const float y1 = kLibrary.y * kTile;
 	const float y2 = (kLibrary.y + kLibrary.h) * kTile;
-	const float cx = (x1 + x2) * 0.5f;
-	const unsigned int stone = GetColor(205, 198, 182);
-	const unsigned int stoneDark = GetColor(150, 142, 128);
+	const float cx = x1 + kLibrary.w * kTile * 0.5f;
 
-	//石の壁
-	DrawBoxAA(x1 + 8.0f, y1 + 66.0f, x2 - 8.0f, y2 - 10.0f, stone, TRUE);
-	for (int row = 0; row < 8; row++)
-	{
-		const float ly = y1 + 82.0f + row * 18.0f;
-		if (ly > y2 - 14.0f) break;
-		DrawLineAA(x1 + 8.0f, ly, x2 - 8.0f, ly, stoneDark, 1.0f);
-	}
+	//いしの いえ(とびらは しょこの まえの マス)
+	DrawHouse(kStoneHouse, x1, y1, kLibrary.w, kLibrary.h, 4 - kLibrary.x);
+	Font::DrawCenter(cx, y1 + kTile * 0.55f, L"しょこ", GetColor(255, 255, 255), FontSize::Small, GetColor(40, 30, 50));
 
-	//段
-	DrawBoxAA(x1 - 4.0f, y2 - 12.0f, x2 + 4.0f, y2 - 4.0f, stoneDark, TRUE);
-	DrawBoxAA(x1 - 10.0f, y2 - 4.0f, x2 + 10.0f, y2 + 2.0f, GetColor(130, 122, 110), TRUE);
-
-	//本棚の窓
-	const unsigned int books[] = { GetColor(170, 60, 50), GetColor(60, 100, 160), GetColor(70, 130, 80), GetColor(190, 150, 60), GetColor(120, 70, 140) };
-	auto shelf = [&](float wx1)
-	{
-		const float wx2 = wx1 + 34.0f;
-		DrawBoxAA(wx1 - 3.0f, y1 + 96.0f, wx2 + 3.0f, y1 + 156.0f, GetColor(90, 60, 40), TRUE);
-		for (int s = 0; s < 2; s++)
-		{
-			const float by = y1 + 100.0f + s * 28.0f;
-			DrawBoxAA(wx1, by, wx2, by + 24.0f, GetColor(60, 40, 30), TRUE);
-			float bx = wx1 + 2.0f;
-			for (int b = 0; bx < wx2 - 4.0f; b++)
-			{
-				const float bw = 4.0f + static_cast<float>((b * 7 + s * 3) % 3);
-				const float bh = 16.0f + static_cast<float>((b * 5 + s) % 3) * 3.0f;
-				DrawBoxAA(bx, by + 24.0f - bh, bx + bw, by + 24.0f, books[(b + s * 2) % 5], TRUE);
-				bx += bw + 1.0f;
-			}
-		}
-	};
-	shelf(x1 + 30.0f);
-	shelf(x2 - 64.0f);
-
-	//柱
-	const float columns[] = { x1 + 20.0f, cx - 34.0f, cx + 34.0f, x2 - 20.0f };
-	for (float c : columns)
-	{
-		DrawBoxAA(c - 7.0f, y1 + 72.0f, c + 7.0f, y2 - 12.0f, GetColor(240, 236, 226), TRUE);
-		DrawLineAA(c - 2.0f, y1 + 76.0f, c - 2.0f, y2 - 16.0f, GetColor(200, 195, 185), 1.0f);
-		DrawLineAA(c + 3.0f, y1 + 76.0f, c + 3.0f, y2 - 16.0f, GetColor(200, 195, 185), 1.0f);
-		DrawBoxAA(c - 10.0f, y1 + 68.0f, c + 10.0f, y1 + 74.0f, GetColor(225, 220, 208), TRUE);
-		DrawBoxAA(c - 10.0f, y2 - 16.0f, c + 10.0f, y2 - 12.0f, GetColor(225, 220, 208), TRUE);
-	}
-
-	//三角屋根
-	DrawBoxAA(x1 - 8.0f, y1 + 58.0f, x2 + 8.0f, y1 + 70.0f, GetColor(185, 178, 162), TRUE);
-	DrawTriangleAA(x1 - 8.0f, y1 + 58.0f, x2 + 8.0f, y1 + 58.0f, cx, y1 + 4.0f, GetColor(185, 178, 162), TRUE);
-	DrawTriangleAA(x1 + 14.0f, y1 + 54.0f, x2 - 14.0f, y1 + 54.0f, cx, y1 + 14.0f, GetColor(215, 208, 192), TRUE);
-
-	//アーチの扉
-	const float dx = kOriginX + 4.5f * kTile;
-	DrawCircleAA(dx, y2 - 50.0f, 18.0f, 20, GetColor(80, 50, 35), TRUE);
-	DrawBoxAA(dx - 18.0f, y2 - 50.0f, dx + 18.0f, y2 - 12.0f, GetColor(80, 50, 35), TRUE);
-	DrawLineAA(dx, y2 - 66.0f, dx, y2 - 12.0f, GetColor(55, 35, 25), 2.0f);
-	DrawCircleAA(dx - 5.0f, y2 - 32.0f, 2.5f, 8, GetColor(240, 210, 120), TRUE);
-	DrawCircleAA(dx + 5.0f, y2 - 32.0f, 2.5f, 8, GetColor(240, 210, 120), TRUE);
-
-	Font::DrawCenter(cx, y1 + 42.0f, L"しょこ", GetColor(255, 255, 255), FontSize::Small, GetColor(40, 30, 50));
-
-	//書庫の人(本を読む)
-	const float kx = x2 - 46.0f;
-	const float fy = y2 - 6.0f;
-	const float bob = std::sin(time_ * 1.5f) * 1.0f;
-	DrawOvalAA(kx, fy, 16.0f, 4.0f, 12, GetColor(60, 50, 40), TRUE);
-	DrawQuadrangleAA(kx - 9.0f, fy - 36.0f + bob, kx + 9.0f, fy - 36.0f + bob, kx + 15.0f, fy, kx - 15.0f, fy, GetColor(70, 60, 120), TRUE);
-	DrawLineAA(kx, fy - 34.0f + bob, kx, fy, GetColor(200, 170, 80), 2.0f);
-	const float hy = fy - 45.0f + bob;
-	DrawCircleAA(kx, hy, 9.0f, 16, GetColor(250, 215, 180), TRUE);
-	DrawTriangleAA(kx - 6.0f, hy + 3.0f, kx + 6.0f, hy + 3.0f, kx, hy + 15.0f, GetColor(235, 235, 240), TRUE);
-	DrawCircleAA(kx, hy - 6.0f, 8.0f, 16, GetColor(220, 220, 225), TRUE);
-	DrawBoxAA(kx - 9.0f, hy - 6.0f, kx + 9.0f, hy - 2.0f, GetColor(250, 215, 180), TRUE);
-	DrawCircleAA(kx - 4.0f, hy, 3.0f, 10, GetColor(60, 50, 40), FALSE, 1.2f);
-	DrawCircleAA(kx + 4.0f, hy, 3.0f, 10, GetColor(60, 50, 40), FALSE, 1.2f);
-	DrawLineAA(kx - 1.0f, hy, kx + 1.0f, hy, GetColor(60, 50, 40), 1.2f);
-
-	//開いた本(ときどき めくる)
-	const float by = fy - 24.0f + bob;
-	DrawQuadrangleAA(kx - 14.0f, by - 4.0f, kx, by, kx, by + 8.0f, kx - 14.0f, by + 4.0f, GetColor(150, 60, 50), TRUE);
-	DrawQuadrangleAA(kx, by, kx + 14.0f, by - 4.0f, kx + 14.0f, by + 4.0f, kx, by + 8.0f, GetColor(150, 60, 50), TRUE);
-	DrawQuadrangleAA(kx - 12.0f, by - 5.0f, kx, by - 1.0f, kx, by + 6.0f, kx - 12.0f, by + 2.0f, GetColor(250, 245, 225), TRUE);
-	DrawQuadrangleAA(kx, by - 1.0f, kx + 12.0f, by - 5.0f, kx + 12.0f, by + 2.0f, kx, by + 6.0f, GetColor(250, 245, 225), TRUE);
-	const float flip = std::fmod(time_, 4.0f);
-	if (flip < 0.5f)
-	{
-		const float px = kx + 12.0f - flip / 0.5f * 24.0f;
-		DrawLineAA(kx, by - 1.0f, px, by - 8.0f, GetColor(255, 255, 240), 2.0f);
-	}
+	//しょこばん(ゆっくり ゆれる)
+	const float bob = std::fabs(std::sin(time_ * 1.5f)) * 2.0f;
+	DrawPerson(kLibrarianTile, { x1 + kTile * 4.0f, y2 - 2.0f }, 2.6f, bob, true);
 }
 
 void CampScene::DrawSmithy()
@@ -1487,144 +1695,43 @@ void CampScene::DrawSmithy()
 	const float y2 = (kSmith.y + kSmith.h) * kTile;
 	const float cx = (x1 + x2) * 0.5f;
 
-	//えんとつ
+	//きの いえ(とびらは かじやの まえの マス)
+	DrawHouse(kWoodHouse, x1, y1, kSmith.w, kSmith.h, 21 - kSmith.x);
+	Font::DrawCenter(cx, y1 + kTile * 0.55f, L"かじや", GetColor(255, 255, 255), FontSize::Small, GetColor(60, 25, 15));
+
+	//えんとつの けむり
 	const float chx = x2 - 40.0f;
-	DrawBoxAA(chx - 13.0f, y1 - 6.0f, chx + 13.0f, y1 + 50.0f, GetColor(150, 75, 55), TRUE);
-	for (int row = 0; row < 7; row++)
-	{
-		const float ly = y1 - 6.0f + row * 8.0f;
-		DrawLineAA(chx - 13.0f, ly, chx + 13.0f, ly, GetColor(110, 50, 40), 1.0f);
-		const float off = (row % 2) ? 0.0f : 6.0f;
-		DrawLineAA(chx - 6.0f + off, ly, chx - 6.0f + off, ly + 8.0f, GetColor(110, 50, 40), 1.0f);
-	}
-	DrawBoxAA(chx - 16.0f, y1 - 10.0f, chx + 16.0f, y1 - 4.0f, GetColor(120, 60, 45), TRUE);
-
-	//木の壁
-	DrawBoxAA(x1 + 6.0f, y1 + 70.0f, x2 - 6.0f, y2, GetColor(125, 82, 50), TRUE);
-	for (float ly = y1 + 82.0f; ly < y2; ly += 13.0f)
-	{
-		DrawLineAA(x1 + 6.0f, ly, x2 - 6.0f, ly, GetColor(95, 60, 36), 1.5f);
-	}
-	DrawBoxAA(x1 + 4.0f, y1 + 70.0f, x1 + 12.0f, y2, GetColor(75, 48, 30), TRUE);
-	DrawBoxAA(x2 - 12.0f, y1 + 70.0f, x2 - 4.0f, y2, GetColor(75, 48, 30), TRUE);
-
-	//かわら屋根
-	DrawQuadrangleAA(x1 + 18.0f, y1 + 22.0f, x2 - 18.0f, y1 + 22.0f, x2 + 14.0f, y1 + 76.0f, x1 - 14.0f, y1 + 76.0f, GetColor(70, 76, 92), TRUE);
-	for (int k = 0; k <= 12; k++)
-	{
-		const float t = k / 12.0f;
-		const float tx = x1 + 18.0f + (x2 - x1 - 36.0f) * t;
-		const float bx = x1 - 14.0f + (x2 - x1 + 28.0f) * t;
-		DrawLineAA(tx, y1 + 22.0f, bx, y1 + 76.0f, GetColor(50, 54, 68), 1.5f);
-	}
-	DrawBoxAA(x1 - 14.0f, y1 + 72.0f, x2 + 14.0f, y1 + 78.0f, GetColor(45, 48, 60), TRUE);
-	DrawBoxAA(x1 + 12.0f, y1 + 16.0f, x2 - 12.0f, y1 + 24.0f, GetColor(45, 48, 60), TRUE);
-
-	//看板
-	DrawBoxAA(cx - 44.0f, y1 + 32.0f, cx + 44.0f, y1 + 60.0f, GetColor(200, 160, 100), TRUE);
-	DrawBoxAA(cx - 44.0f, y1 + 32.0f, cx + 44.0f, y1 + 60.0f, GetColor(90, 55, 30), FALSE, 2.0f);
-	Font::DrawCenter(cx, y1 + 46.0f, L"かじや", GetColor(60, 30, 15), FontSize::Small, GetColor(240, 220, 180));
-
-	//炉(えんとつの下)
-	const float fx1 = chx - 30.0f;
-	const float fx2 = chx + 26.0f;
-	const float fTop = y2 - 74.0f;
-	DrawBoxAA(fx1 - 6.0f, fTop - 6.0f, fx2 + 6.0f, y2, GetColor(110, 105, 100), TRUE);
-	DrawCircleAA((fx1 + fx2) * 0.5f, fTop + 18.0f, (fx2 - fx1) * 0.5f, 20, GetColor(35, 22, 18), TRUE);
-	DrawBoxAA(fx1, fTop + 18.0f, fx2, y2 - 8.0f, GetColor(35, 22, 18), TRUE);
-	const float flick = std::sin(time_ * 13.0f) * 2.5f + std::sin(time_ * 7.0f) * 1.5f;
-	const float fcx = (fx1 + fx2) * 0.5f;
-	SetDrawBlendMode(DX_BLENDMODE_ADD, 140);
-	DrawCircleAA(fcx, y2 - 22.0f, 34.0f + flick, 24, GetColor(255, 110, 30), TRUE);
-	SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
-	DrawOvalAA(fcx, y2 - 22.0f, 18.0f, 16.0f + flick, 16, GetColor(255, 140, 40), TRUE);
-	DrawOvalAA(fcx, y2 - 18.0f, 10.0f, 9.0f, 12, GetColor(255, 230, 120), TRUE);
-
-	//のれんの入口
-	const float dx = kOriginX + 21.5f * kTile;
-	DrawBoxAA(dx - 20.0f, y2 - 58.0f, dx + 20.0f, y2, GetColor(40, 28, 20), TRUE);
-	for (int k = 0; k < 3; k++)
-	{
-		const float nx = dx - 22.0f + k * 15.0f;
-		const float sway = std::sin(time_ * 1.8f + k) * 1.5f;
-		DrawQuadrangleAA(nx, y2 - 60.0f, nx + 14.0f, y2 - 60.0f, nx + 14.0f + sway, y2 - 34.0f, nx + sway, y2 - 34.0f, GetColor(40, 60, 120), TRUE);
-	}
-	DrawCircleAA(dx, y2 - 48.0f, 6.0f, 12, GetColor(240, 240, 240), FALSE, 2.0f);
-
-	//金床
-	const float ax = x1 + 76.0f;
-	const float fy = y2 - 6.0f;
-	const float anvilTop = fy - 20.0f;
-	DrawBoxAA(ax - 8.0f, fy - 6.0f, ax + 10.0f, fy, GetColor(50, 50, 58), TRUE);
-	DrawBoxAA(ax - 4.0f, anvilTop + 6.0f, ax + 6.0f, fy - 6.0f, GetColor(65, 65, 75), TRUE);
-	DrawBoxAA(ax - 12.0f, anvilTop, ax + 14.0f, anvilTop + 6.0f, GetColor(80, 80, 92), TRUE);
-	DrawTriangleAA(ax + 14.0f, anvilTop, ax + 14.0f, anvilTop + 6.0f, ax + 24.0f, anvilTop + 1.0f, GetColor(80, 80, 92), TRUE);
-	//焼けた刀
-	DrawLineAA(ax - 18.0f, anvilTop - 1.0f, ax + 18.0f, anvilTop - 2.0f, GetColor(255, 120, 50), 3.0f);
-	DrawLineAA(ax - 24.0f, anvilTop - 1.0f, ax - 18.0f, anvilTop - 1.0f, GetColor(60, 40, 30), 3.0f);
-
-	//刀鍛冶
-	const float sx = x1 + 44.0f;
-	const float period = 0.9f;
-	const float p = std::fmod(time_, period) / period;
-	const float strikeAngle = std::atan2(anvilTop - (fy - 36.0f), ax - (sx + 4.0f));
-	const float upAngle = -2.2f;
-	float angle = strikeAngle;
-	if (p < 0.55f) angle = strikeAngle + (upAngle - strikeAngle) * std::sin(p / 0.55f * 1.5708f);
-	else if (p < 0.7f) angle = upAngle + (strikeAngle - upAngle) * ((p - 0.55f) / 0.15f);
-	DrawOvalAA(sx, fy, 16.0f, 4.0f, 12, GetColor(60, 50, 40), TRUE);
-	DrawQuadrangleAA(sx - 9.0f, fy - 22.0f, sx + 9.0f, fy - 22.0f, sx + 13.0f, fy, sx - 13.0f, fy, GetColor(40, 45, 70), TRUE);
-	DrawLineAA(sx, fy - 20.0f, sx, fy, GetColor(25, 28, 45), 1.5f);
-	DrawBoxAA(sx - 9.0f, fy - 40.0f, sx + 9.0f, fy - 20.0f, GetColor(245, 245, 240), TRUE);
-	DrawLineAA(sx - 6.0f, fy - 40.0f, sx + 2.0f, fy - 28.0f, GetColor(190, 190, 185), 1.5f);
-	DrawLineAA(sx + 6.0f, fy - 40.0f, sx - 2.0f, fy - 28.0f, GetColor(190, 190, 185), 1.5f);
-	DrawBoxAA(sx - 9.0f, fy - 24.0f, sx + 9.0f, fy - 21.0f, GetColor(40, 45, 70), TRUE);
-	const float hy = fy - 48.0f;
-	DrawCircleAA(sx, hy, 8.5f, 16, GetColor(240, 200, 165), TRUE);
-	DrawCircleAA(sx + 4.0f, hy - 1.0f, 1.3f, 6, GetColor(40, 30, 30), TRUE);
-	//えぼし
-	DrawQuadrangleAA(sx - 8.0f, hy - 5.0f, sx + 7.0f, hy - 5.0f, sx + 2.0f, hy - 22.0f, sx - 6.0f, hy - 20.0f, GetColor(25, 25, 30), TRUE);
-	DrawBoxAA(sx - 9.0f, hy - 7.0f, sx + 9.0f, hy - 4.0f, GetColor(25, 25, 30), TRUE);
-	//うでと つち
-	const float shx = sx + 4.0f;
-	const float shy = fy - 36.0f;
-	const float ca = std::cos(angle);
-	const float sa = std::sin(angle);
-	const float hx = shx + ca * 30.0f;
-	const float hyy = shy + sa * 30.0f;
-	DrawLineAA(shx, shy, shx + ca * 14.0f, shy + sa * 14.0f, GetColor(245, 245, 240), 5.0f);
-	DrawLineAA(shx + ca * 12.0f, shy + sa * 12.0f, hx, hyy, GetColor(130, 90, 55), 3.0f);
-	DrawLineAA(hx - sa * 7.0f, hyy + ca * 7.0f, hx + sa * 7.0f, hyy - ca * 7.0f, GetColor(70, 70, 80), 7.0f);
-
-	//火花
-	if (p >= 0.7f)
-	{
-		const float t = (p - 0.7f) / 0.3f;
-		const int strike = static_cast<int>(time_ / period);
-		const float hitX = ax + 2.0f;
-		const float hitY = anvilTop - 2.0f;
-		SetDrawBlendMode(DX_BLENDMODE_ADD, static_cast<int>(255 * (1.0f - t)));
-		if (t < 0.3f) DrawCircleAA(hitX, hitY, 10.0f * (1.0f - t / 0.3f) + 4.0f, 12, GetColor(255, 220, 140), TRUE);
-		for (int k = 0; k < 8; k++)
-		{
-			const unsigned int h = static_cast<unsigned int>(strike * 73856093 ^ (k + 1) * 19349663);
-			const float r1 = static_cast<float>(h % 1000) / 1000.0f;
-			const float r2 = static_cast<float>((h / 1000) % 1000) / 1000.0f;
-			const float dir = -1.5708f + (r1 - 0.5f) * 2.6f;
-			const float speed = 30.0f + r2 * 40.0f;
-			const float spx = hitX + std::cos(dir) * speed * t;
-			const float spy = hitY + std::sin(dir) * speed * t + 50.0f * t * t;
-			DrawCircleAA(spx, spy, 2.0f, 6, GetColor(255, 200 - static_cast<int>(r2 * 80), 60), TRUE);
-		}
-		SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
-	}
-
-	//けむり
 	for (int k = 0; k < 3; k++)
 	{
 		const float t = std::fmod(time_ * 0.6f + k * 0.33f, 1.0f);
 		SetDrawBlendMode(DX_BLENDMODE_ALPHA, static_cast<int>(120 * (1.0f - t)));
-		DrawCircleAA(chx + t * 20.0f, y1 - 14.0f - t * 60.0f, 8.0f + t * 10.0f, 12, GetColor(200, 200, 200), TRUE);
+		DrawCircleAA(chx + t * 20.0f, y1 - 4.0f - t * 60.0f, 8.0f + t * 10.0f, 12, GetColor(200, 200, 200), TRUE);
+		SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+	}
+
+	//かなとこ と かじや(つちを ふりおろす)
+	const Vec2 anvil = { x1 + 76.0f, y2 - 2.0f };
+	Sprite::DrawFeet(Sprite::Tile(SpriteSheet::Dungeon, kAnvilTile), anvil, 2.0f, 2.0f);
+	const Vec2 smith = { x1 + 40.0f, y2 - 2.0f };
+	DrawPerson(kSmithTile, smith, 2.6f, 0.0f, false);
+
+	const float period = 0.9f;
+	const float p = std::fmod(time_, period) / period;
+	const float down = 1.2f;
+	const float up = -0.9f;
+	float angle = down;
+	if (p < 0.55f) angle = down + (up - down) * std::sin(p / 0.55f * 1.5708f);
+	else if (p < 0.7f) angle = up + (down - up) * ((p - 0.55f) / 0.15f);
+	Sprite::DrawFeet(Sprite::Tile(SpriteSheet::Dungeon, kHammerTile), smith + Vec2(12.0f, -18.0f), 1.8f, 1.8f, false, angle);
+
+	//うったときの ひばな
+	if (p >= 0.7f && p < 0.85f)
+	{
+		SetDrawBlendMode(DX_BLENDMODE_ADD, 220);
+		for (int k = 0; k < 3; k++)
+		{
+			DrawUtil::Star(anvil.x - 6.0f + k * 8.0f, anvil.y - 30.0f - k * 4.0f - (p - 0.7f) * 120.0f, 4.0f, time_ * 8.0f + k, GetColor(255, 200, 90));
+		}
 		SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 	}
 }

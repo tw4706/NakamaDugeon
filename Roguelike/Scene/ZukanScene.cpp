@@ -90,7 +90,7 @@ void ZukanScene::Update()
 	{
 		isLeaving_ = true;
 		sound.PlaySE(SE::Cancel);
-		sceneManager_.ChangeSceneWithFade(std::make_shared<CampScene>(sceneManager_));
+		sceneManager_.ChangeSceneWithFade(std::make_shared<CampScene>(sceneManager_, Cell{ 4, 7 }));	//しょこの まえ
 	}
 }
 

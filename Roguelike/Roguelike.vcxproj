@@ -103,7 +103,10 @@
     <ClCompile Include="Scene\SmithScene.cpp" />
     <ClCompile Include="Scene\TitleScene.cpp" />
     <ClCompile Include="Scene\ZukanScene.cpp" />
+    <ClCompile Include="Scene\FishZukanScene.cpp" />
+    <ClCompile Include="Scene\FishingScene.cpp" />
     <ClCompile Include="System\ButtonGuide.cpp" />
+    <ClCompile Include="System\Sprite.cpp" />
     <ClCompile Include="System\DrawUtil.cpp" />
     <ClCompile Include="System\Effects.cpp" />
     <ClCompile Include="System\Fade.cpp" />
@@ -111,6 +114,7 @@
     <ClCompile Include="System\Input.cpp" />
     <ClCompile Include="System\Sound.cpp" />
     <ClCompile Include="Unit\MonsterData.cpp" />
+    <ClCompile Include="Unit\FishData.cpp" />
     <ClCompile Include="Unit\UnitDraw.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -136,7 +140,10 @@
     <ClInclude Include="Scene\SmithScene.h" />
     <ClInclude Include="Scene\TitleScene.h" />
     <ClInclude Include="Scene\ZukanScene.h" />
+    <ClInclude Include="Scene\FishZukanScene.h" />
+    <ClInclude Include="Scene\FishingScene.h" />
     <ClInclude Include="System\ButtonGuide.h" />
+    <ClInclude Include="System\Sprite.h" />
     <ClInclude Include="System\DrawUtil.h" />
     <ClInclude Include="System\Effects.h" />
     <ClInclude Include="System\Fade.h" />
@@ -144,6 +151,7 @@
     <ClInclude Include="System\Input.h" />
     <ClInclude Include="System\Sound.h" />
     <ClInclude Include="Unit\MonsterData.h" />
+    <ClInclude Include="Unit\FishData.h" />
     <ClInclude Include="Unit\Unit.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

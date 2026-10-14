@@ -81,8 +81,20 @@
     <ClCompile Include="Scene\TitleScene.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
+    <ClCompile Include="Scene\FishZukanScene.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="Scene\FishingScene.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="Unit\FishData.cpp">
+      <Filter>Unit</Filter>
+    </ClCompile>
     <ClCompile Include="Scene\ZukanScene.cpp">
       <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="System\Sprite.cpp">
+      <Filter>System</Filter>
     </ClCompile>
     <ClCompile Include="System\ButtonGuide.cpp">
       <Filter>System</Filter>
@@ -176,8 +188,20 @@
     <ClInclude Include="Scene\TitleScene.h">
       <Filter>Scene</Filter>
     </ClInclude>
+    <ClInclude Include="Scene\FishZukanScene.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Scene\FishingScene.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Unit\FishData.h">
+      <Filter>Unit</Filter>
+    </ClInclude>
     <ClInclude Include="Scene\ZukanScene.h">
       <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="System\Sprite.h">
+      <Filter>System</Filter>
     </ClInclude>
     <ClInclude Include="System\ButtonGuide.h">
       <Filter>System</Filter>

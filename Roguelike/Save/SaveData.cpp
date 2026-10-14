@@ -1,6 +1,7 @@
 ﻿#include "SaveData.h"
 #include "MonsterData.h"
 #include "Stage.h"
+#include "FishData.h"
 #include<fstream>
 #include<algorithm>
 #include<ctime>
@@ -127,6 +128,7 @@ void SaveSlot::Fit(int monsterNum)
 	shinyLowerLv.resize(n, -1);
 	run.materials.resize(n, 0);
 	run.shinyMaterials.resize(n, 0);
+	fish.resize(FishTable::All().size());
 }
 
 HeroBonus SaveSlot::GearBonus(const Charm* overrideCharm) const
@@ -209,6 +211,11 @@ namespace
 			{ L"マジンの かく", L"ようがんの まじんの しんぞう。あつい ちからが みなぎる。", 42, { { SkillKind::Atk, 3 } }, 0, 0 },
 			{ L"やみの せいしょ", L"やみの しんかんの せいしょ。なかまの きばを するどくする。", 43, {}, 0, 10 },
 			{ L"えいゆうの あかし", L"むげんの めいきゅうを とうはした あかし。", 44, Relic::Skills(), 0, 0 },
+
+			//つりずかんの ほうび(ver1.5)。ばんごうが ずれないよう かならず うしろに たす
+			{ L"つりびとの ぼうし", L"いけの さかなを 5しゅるい つった あかし。けいけんが みに つきやすい。", -1, { { SkillKind::Exp, 5 } }, 0, 0, 5 },
+			{ L"うきの おまもり", L"いけの さかなを 10しゅるい つった あかし。なかまを やさしく まもる。", -1, {}, 5, 0, 10 },
+			{ L"ぬしの うろこ", L"つりずかんを ぜんぶ うめた あかし。いけの ぬしの かたい うろこ。", -1, { { SkillKind::Def, 2 } }, 0, 0, 15 },
 		};
 		return kTable;
 	}
@@ -281,6 +288,27 @@ int KeyItem::AllyAtkRate(const SaveSlot& s)
 	return rate;
 }
 
+int KeyItem::FishKinds(const SaveSlot& s)
+{
+	int kinds = 0;
+	for (const FishRecord& rec : s.fish) if (rec.count > 0) kinds++;
+	return kinds;
+}
+
+std::vector<int> KeyItem::GiveFishRewards(SaveSlot& s)
+{
+	std::vector<int> got;
+	const int kinds = FishKinds(s);
+	for (int i = 0; i < Count(); i++)
+	{
+		const int need = Get(i).fishKinds;
+		if (need <= 0 || kinds < need || IsOwned(s, i)) continue;
+		Give(s, i);
+		got.push_back(i);
+	}
+	return got;
+}
+
 //==============================//
 // SaveManager
 //==============================//
@@ -305,8 +333,9 @@ void SaveManager::LoadAll()
 		for (int k = 0; k < KeyItem::Count(); k++)
 		{
 			const int boss = KeyItem::Get(k).bossId;
-			if (boss < static_cast<int>(slots_[i].zukan.size()) && slots_[i].zukan[boss].isDefeated) KeyItem::Give(slots_[i], k);
+			if (boss >= 0 && boss < static_cast<int>(slots_[i].zukan.size()) && slots_[i].zukan[boss].isDefeated) KeyItem::Give(slots_[i], k);
 		}
+		KeyItem::GiveFishRewards(slots_[i]);
 	}
 
 	std::ifstream f(std::string(kDir) + "/settings.dat");
@@ -442,6 +471,31 @@ bool SaveManager::LoadSlot(int index)
 				if (i < static_cast<int>(SkillKind::Num)) s.orbs[i] = v;
 			}
 		}
+		else if (tag == "FISH")
+		{
+			int num = 0;
+			f >> num;
+			s.fish.assign(std::max(0, num), FishRecord());
+			for (FishRecord& rec : s.fish) f >> rec.count >> rec.best;
+		}
+		else if (tag == "FSTOCK")
+		{
+			int num = 0;
+			f >> num;
+			if (static_cast<int>(s.fish.size()) < num) s.fish.resize(std::max(0, num));
+			for (int i = 0; i < num; i++)
+			{
+				s.fish[i].stock = ReadInts(f);
+				if (static_cast<int>(s.fish[i].stock.size()) > FishTable::kMaxStock) s.fish[i].stock.resize(FishTable::kMaxStock);
+			}
+		}
+		else if (tag == "MEAL")
+		{
+			f >> s.mealFish >> s.mealSize >> r.mealFish >> r.mealSize;
+			const int fishNum = static_cast<int>(FishTable::All().size());
+			if (s.mealFish >= fishNum) s.mealFish = -1;
+			if (r.mealFish >= fishNum) r.mealFish = -1;
+		}
 		else
 		{
 			break;
@@ -515,6 +569,12 @@ void SaveManager::Save()
 	f << "ORBS " << static_cast<int>(SkillKind::Num);
 	for (int v : s.orbs) f << ' ' << v;
 	f << '\n';
+	f << "FISH " << s.fish.size();
+	for (const FishRecord& rec : s.fish) f << ' ' << rec.count << ' ' << rec.best;
+	f << '\n';
+	f << "FSTOCK " << s.fish.size() << '\n';
+	for (const FishRecord& rec : s.fish) WriteInts(f, rec.stock);
+	f << "MEAL " << s.mealFish << ' ' << s.mealSize << ' ' << r.mealFish << ' ' << r.mealSize << '\n';
 }
 
 void SaveManager::Delete(int index)
